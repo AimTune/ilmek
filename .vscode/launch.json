@@ -1,0 +1,213 @@
+{
+    // Node debugging for the TypeScript workspace (ts/). Notes, all verified
+    // over CDP rather than assumed:
+    //
+    //  1. No tsx. Node runs .ts directly via native type stripping. Debugging a
+    //     demo or a core test needs no build: the file you break in is stripped
+    //     in place. The one caveat is cross-package code — a demo imports the
+    //     BUILT @ilmek/core (packages/core/dist), so `pnpm build` once before
+    //     stepping INTO core; the demo's own frames never need it. Core's own
+    //     tests import ../src relative, so they stay build-free.
+    //  2. Positions are exact. Type stripping replaces types with whitespace
+    //     rather than rewriting code, so a breakpoint on a line of real code
+    //     resolves to that line, scopes populate, and Debug Console expressions
+    //     read real source names. Stepping into built core resolves through its
+    //     sourceMap back to packages/core/src. BUT — see "breakpoints that move"
+    //     below. Whitespace is the trick AND the trap.
+    //  3. --test-isolation=none for the test configs. `node --test` normally
+    //     runs each file in a CHILD process (NODE_TEST_CONTEXT=child-v8);
+    //     isolation=none keeps them in the process VSCode launched, so
+    //     breakpoints bind without relying on child-process auto-attach.
+    //     Caveat: test files then share one process — fine here, since each
+    //     test builds its own graph and checkpointer.
+    //
+    // Type stripping does NOT typecheck. `pnpm check` (build → test → demos)
+    // is what proves the workspace; these configs are for inspecting it.
+    //
+    // ── HITL pauses and the debugger ────────────────────────────────────────
+    //
+    // ctx.interrupt() halts a task by throwing InterruptSignal, which the engine
+    // catches as ordinary control flow. To V8 that is still a throw — and since
+    // ctx.interrupt() is async, it surfaces as a *promiseRejection*. Two knobs,
+    // pulling opposite ways:
+    //
+    //  • STOP ON PAUSES, AND NOTHING ELSE → the "break on every HITL pause"
+    //    config below. Sets ILMEK_DEBUG_BREAK_ON_INTERRUPT=1, which arms a
+    //    `debugger` statement in ts/packages/core/src/context.ts right where the pause is
+    //    journaled. `full` (the journal key) and `payload` (the question) are in
+    //    scope. Inert without the env var, so it costs nothing in production.
+    //
+    //  • STOP ON REAL ERRORS, BUT NOT ON PAUSES → if you tick "Caught
+    //    Exceptions" in the Breakpoints pane, it stops on EVERY HITL pause,
+    //    drowning the errors you turned it on for. Filter them out: right-click
+    //    "Caught Exceptions" → Edit Condition → paste
+    //
+    //        !error?.isIlmekInterrupt
+    //
+    //    `instanceof InterruptSignal` will NOT work there — the condition is
+    //    evaluated in the paused frame, where ilmek's exports are out of scope.
+    //    That is exactly why InterruptSignal carries a plain `isIlmekInterrupt`
+    //    property instead of relying on its class.
+    //
+    //  Measured, so you do not try it: `skipFiles` does NOT suppress this. It
+    //  compiles to V8 blackboxing, and blackboxing a file still pauses on the
+    //  exceptions thrown inside it. The condition is the only filter.
+    //
+    // ── breakpoints that move ───────────────────────────────────────────────
+    //
+    // Type stripping erases types to WHITESPACE. A comment, an `import type`, an
+    // `interface` body — after stripping, those lines hold no executable code at
+    // all. A breakpoint on one does not fail; it silently SLIDES FORWARD to the
+    // next real statement. Measured on examples/checkout.ts:
+    //
+    //     asked → resolved
+    //      34   →  45   (inside `interface Order` — erased)
+    //      37   →  45   (blank line)
+    //      39   →  45   (inside `interface Question` — erased)
+    //
+    // The corollary that actually bites: everything above a module's first
+    // statement — the comment header, the whole import block — is erased, so a
+    // stale breakpoint anywhere up there lands on that first statement and looks
+    // like "the debugger stops for no reason on line 31".
+    //
+    // If a breakpoint stops somewhere senseless, it is stale. Clear all
+    // breakpoints (Breakpoints pane → Remove All) and set them again on lines
+    // that survive stripping.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Answer at the prompt: "evet" charges, "hayır" cancels.
+            // integratedTerminal is required — stdin does not exist in the
+            // Debug Console, and the demo would hang on its first question.
+            "type": "node",
+            "request": "launch",
+            "name": "Demo: checkout (interactive)",
+            "program": "${workspaceFolder}/ts/examples/checkout.ts",
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            // Same run, scripted "evet". No stdin, deterministic, exit 0/1 —
+            // this is the one to step through.
+            //
+            // Put a breakpoint on the ctx.step("create_order", …) line AND on
+            // the ctx.step("charge", …) line below the pause, then walk both
+            // runs: on run 2 the node re-enters from the top and the debugger
+            // steps straight OVER create_order's callback. That is the journal
+            // (MODEL.md §5) with a stack trace attached.
+            "type": "node",
+            "request": "launch",
+            "name": "Demo: checkout — scripted (selftest)",
+            "program": "${workspaceFolder}/ts/examples/checkout.ts",
+            "args": ["--selftest"],
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            // Stops in ctx.interrupt() the moment any node pauses for a human —
+            // without arming "Caught Exceptions" and its noise. Verified: it
+            // stops at context.ts's `debugger` with `full` and `payload` live.
+            "type": "node",
+            "request": "launch",
+            "name": "Demo: checkout — break on every HITL pause",
+            "program": "${workspaceFolder}/ts/examples/checkout.ts",
+            "args": ["--selftest"],
+            "cwd": "${workspaceFolder}/ts",
+            "env": { "ILMEK_DEBUG_BREAK_ON_INTERRUPT": "1" },
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Demo: streaming (tokens · modes · abort)",
+            "program": "${workspaceFolder}/ts/examples/streaming.ts",
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Demo: map-reduce (send · command · retry)",
+            "program": "${workspaceFolder}/ts/examples/mapreduce.ts",
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "TS core tests — all",
+            "runtimeExecutable": "node",
+            "runtimeArgs": [
+                "--test",
+                "--test-isolation=none",
+                "--test-concurrency=1",
+                "packages/core/test/ilmek.test.ts",
+                "packages/core/test/spec.test.ts",
+                "packages/core/test/stream.test.ts",
+                "packages/core/test/control.test.ts"
+            ],
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            // Provider tests import the built @ilmek/core — build the workspace
+            // (pnpm build) before launching, or run pnpm check.
+            "type": "node",
+            "request": "launch",
+            "name": "TS checkpointer tests (sqlite + postgres)",
+            "runtimeExecutable": "node",
+            "runtimeArgs": [
+                "--test",
+                "--test-isolation=none",
+                "--test-concurrency=1",
+                "packages/checkpointers/sqlite/test/sqlite.test.ts",
+                "packages/checkpointers/postgres/test/postgres.test.ts"
+            ],
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "TS tests — current file",
+            "runtimeExecutable": "node",
+            // ${file}, not ${relativeFile}: the latter is relative to the
+            // workspace root ("ts/test/…") while cwd is already ts/, which would
+            // send node looking for ts/ts/test/….
+            "runtimeArgs": [
+                "--test",
+                "--test-isolation=none",
+                "--test-concurrency=1",
+                "${file}"
+            ],
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "TS — current file",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}/ts",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            // For a process already started with: node --inspect <file>.ts
+            "type": "node",
+            "request": "attach",
+            "name": "Attach to running node (:9229)",
+            "port": 9229,
+            "cwd": "${workspaceFolder}/ts",
+            "skipFiles": ["<node_internals>/**"]
+        }
+    ]
+}

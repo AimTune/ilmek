@@ -1,0 +1,47 @@
+{
+  "name": "@ilmek/checkpoint-sqlite",
+  "version": "0.1.0",
+  "description": "SQLite checkpointer for ilmek — durable threads with zero dependencies, on Node's built-in node:sqlite.",
+  "type": "module",
+  "license": "MIT",
+  "author": "AimTune",
+  "homepage": "https://github.com/AimTune/ilmek/tree/main/ts/packages/checkpointers/sqlite#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AimTune/ilmek.git",
+    "directory": "ts/packages/checkpointers/sqlite"
+  },
+  "bugs": "https://github.com/AimTune/ilmek/issues",
+  "keywords": [
+    "ilmek",
+    "checkpoint",
+    "sqlite",
+    "durable"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@ilmek/core": "workspace:*"
+  }
+}

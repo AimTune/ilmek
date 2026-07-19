@@ -1,0 +1,20 @@
+{
+  "name": "@ilmek/workspace",
+  "private": true,
+  "type": "module",
+  "description": "ilmek — an agent graph runtime. TypeScript workspace root.",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b",
+    "test": "pnpm -r --filter \"./packages/**\" test",
+    "test:core": "node --test packages/core/test/*.test.ts",
+    "demos": "pnpm --filter @ilmek/examples demos",
+    "check": "pnpm build && pnpm test && pnpm demos"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "@types/node": "^24.0.0"
+  },
+  "license": "MIT"
+}

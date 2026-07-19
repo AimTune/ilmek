@@ -1,0 +1,12 @@
+# TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+
+# .NET
+bin/
+obj/
+*.user
+
+# OS / editor
+.DS_Store

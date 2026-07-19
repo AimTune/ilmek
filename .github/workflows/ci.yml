@@ -1,0 +1,69 @@
+name: CI
+
+# Build and test both implementations on every push and PR. Path filters keep a
+# TS-only change from spinning up .NET and vice versa.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ts:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite (checkpoint-sqlite) and native .ts execution need a
+          # recent Node; 22.5+ is the floor, 24 is what we develop on.
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ts/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      # build → test → demos. Type stripping does not typecheck, so the build
+      # (real tsc) is what proves the types; see ts/README.md.
+      - run: pnpm check
+
+      # Prove every publishable package still produces a valid tarball, and that
+      # workspace:* deps rewrite to real versions — the failure mode a plain test
+      # run would miss.
+      - name: pack (dry-run publish artifacts)
+        run: |
+          pnpm -r --filter "./packages/**" exec pnpm pack --pack-destination "$RUNNER_TEMP/tgz"
+          ls -la "$RUNNER_TEMP/tgz"
+
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dotnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - run: dotnet restore Ilmek.sln
+      - run: dotnet build Ilmek.sln -c Release --no-restore
+      - run: dotnet test Ilmek.sln -c Release --no-build --verbosity normal
+
+      # Same idea as the TS pack step: prove the libraries still produce valid
+      # NuGet packages, with dependencies wired, before a release ever runs.
+      - name: pack (dry-run publish artifacts)
+        run: dotnet pack Ilmek.sln -c Release --no-build -o "$RUNNER_TEMP/nupkg" && ls -la "$RUNNER_TEMP/nupkg"

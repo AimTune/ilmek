@@ -1,0 +1,17 @@
+{
+  "name": "@ilmek/examples",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runnable ilmek examples. Import @ilmek/core, so build the workspace first.",
+  "scripts": {
+    "demo": "node checkout.ts",
+    "selftest": "node checkout.ts --selftest",
+    "demo:stream": "node streaming.ts",
+    "demo:mapreduce": "node mapreduce.ts",
+    "demos": "pnpm selftest && pnpm demo:stream && pnpm demo:mapreduce"
+  },
+  "dependencies": {
+    "@ilmek/core": "workspace:*"
+  }
+}

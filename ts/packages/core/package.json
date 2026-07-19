@@ -1,0 +1,45 @@
+{
+  "name": "@ilmek/core",
+  "version": "0.1.0",
+  "description": "ilmek core — an agent graph runtime: state, nodes, edges, checkpointed memory, and durable human-in-the-loop. Zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "author": "AimTune",
+  "homepage": "https://github.com/AimTune/ilmek/tree/main/ts/packages/core#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AimTune/ilmek.git",
+    "directory": "ts/packages/core"
+  },
+  "bugs": "https://github.com/AimTune/ilmek/issues",
+  "keywords": [
+    "agent",
+    "graph",
+    "workflow",
+    "durable",
+    "human-in-the-loop",
+    "checkpoint",
+    "llm"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test test/*.test.ts",
+    "demo": "node ../../examples/checkout.ts"
+  }
+}
