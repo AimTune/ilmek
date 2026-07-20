@@ -8,6 +8,10 @@ pure-replay engine repeats every side effect before the pause. ilmek wraps each
 effect in `ctx.step(...)` — the journal replays its recorded result instead of
 calling it again. An interrupt is just a step whose value comes from a human.
 
+```sh
+npm install @ilmek/core
+```
+
 ```ts
 import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
 

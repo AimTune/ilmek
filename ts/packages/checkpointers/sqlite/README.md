@@ -4,6 +4,10 @@ A durable [ilmek](https://github.com/AimTune/ilmek) checkpointer in a single
 SQLite file — zero dependencies, on Node's built-in `node:sqlite`. A parked
 interrupt survives a process restart, a deploy, or a crash.
 
+```sh
+npm install @ilmek/core @ilmek/checkpoint-sqlite
+```
+
 ```ts
 import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
 

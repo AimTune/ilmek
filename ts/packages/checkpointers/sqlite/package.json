@@ -1,6 +1,6 @@
 {
   "name": "@ilmek/checkpoint-sqlite",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SQLite checkpointer for ilmek — durable threads with zero dependencies, on Node's built-in node:sqlite.",
   "type": "module",
   "license": "MIT",

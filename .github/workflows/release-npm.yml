@@ -3,9 +3,14 @@ name: Release (npm)
 # Publishes the @ilmek/* packages to npm. Trigger with the same `v*` tag as the
 # NuGet release; a separate file so it versions and fails independently.
 #
-# Auth: an NPM_TOKEN secret (a granular automation token) for the first publish.
-# Once the packages exist you can add an npm trusted-publisher pointing at this
-# file (release-npm.yml) and drop the token — provenance is already on via OIDC.
+# Auth: npm trusted publishing (OIDC) — no token stored. Each package has a
+# trusted-publisher policy on npmjs.com bound to owner AimTune, repo ilmek, and
+# this file (release-npm.yml); keep the filename in sync with those policies.
+# Trusted publishing also generates provenance automatically, so neither the
+# --provenance flag nor NPM_CONFIG_PROVENANCE is needed here.
+#
+# pnpm is pinned to 10 deliberately: OIDC publishing regressed in pnpm 11
+# (pnpm/pnpm#11513). Verify that issue is fixed before bumping the major.
 on:
   push:
     tags: ["v*"]
@@ -45,6 +50,3 @@ jobs:
       # skipped, so a re-run after a partial failure is safe.
       - name: pnpm publish
         run: pnpm -r publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
