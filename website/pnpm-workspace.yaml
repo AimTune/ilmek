@@ -1,6 +1,7 @@
 # Standalone Docusaurus project (not part of the ts/ workspace). This file exists
 # only to carry pnpm settings that moved out of package.json / .npmrc in pnpm 11.
 verifyDepsBeforeRun: false
-onlyBuiltDependencies:
-  - "@swc/core"
-  - core-js
+# @swc/core and core-js ship optional native build scripts the static build does
+# not need. pnpm 11 fails `install` on un-run build scripts when CI=true; this
+# keeps that a warning, since the site builds fine without them.
+strictDepBuilds: false
