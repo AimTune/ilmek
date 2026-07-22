@@ -14,7 +14,9 @@ import {
     send,
     START,
     stream,
+    type ChannelMap,
     type RetryPolicy,
+    type StateOf,
 } from "@ilmek/core";
 
 // A service that fails the first `failsFor` calls per key, then succeeds.
@@ -28,10 +30,16 @@ function flakyUppercase(key: string, text: string, failsFor: number): string {
 
 const retry: RetryPolicy = { maxAttempts: 4, backoffMs: 5, factor: 2 };
 
-const g = graph("shout")
-    .channel("words", channel.lastWrite<string[]>([]))
-    .channel("shouted", channel.append<string>())
-    .channel("rounds", channel.lastWrite<number>(0))
+// Schema-first state: words to shout in, results out (accumulated), a round counter.
+const ShoutState = {
+    words: channel.lastWrite<string[]>([]),
+    shouted: channel.append<string>(),
+    rounds: channel.lastWrite<number>(0),
+} satisfies ChannelMap;
+
+type ShoutState = StateOf<typeof ShoutState>; // { words: string[]; shouted: string[]; rounds: number }
+
+const g = graph("shout", ShoutState)
     // 1) fan out: one worker task per word, each with its own payload (§14)
     .node("plan", () => ({}))
     // 2) worker: reads its send payload, retries the flaky call safely (§16)

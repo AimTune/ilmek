@@ -8,7 +8,16 @@
 // No LLM and no network: a fake "model" yields characters on a timer. Swap it
 // for a real streaming client and nothing else changes — a token is a token.
 
-import { channel, END, graph, START, streamModes, type TokenChunk } from "@ilmek/core";
+import {
+    channel,
+    END,
+    graph,
+    START,
+    streamModes,
+    type ChannelMap,
+    type StateOf,
+    type TokenChunk,
+} from "@ilmek/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -23,9 +32,16 @@ async function* fakeModel(prompt: string, signal?: AbortSignal): AsyncGenerator<
     }
 }
 
-const g = graph("assistant")
-    .channel("prompt", channel.lastWrite<string>(""))
-    .channel("answer", channel.lastWrite<string>(""))
+// Schema-first state: the shape lives in one named place, so node bodies and the
+// streamed updates are all typed against it.
+const AssistantState = {
+    prompt: channel.lastWrite<string>(""),
+    answer: channel.lastWrite<string>(""),
+} satisfies ChannelMap;
+
+type AssistantState = StateOf<typeof AssistantState>; // { prompt: string; answer: string }
+
+const g = graph("assistant", AssistantState)
     .node("respond", async (state, ctx) => {
         let answer = "";
         // Forward ctx.signal into the model so cancellation reaches the actual

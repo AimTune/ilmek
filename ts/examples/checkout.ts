@@ -24,8 +24,10 @@ import {
     resumeKeyed,
     run,
     START,
+    type ChannelMap,
     type Pending,
     type Result,
+    type StateOf,
 } from "@ilmek/core";
 
 const SELFTEST = process.argv.includes("--selftest");
@@ -57,11 +59,20 @@ const Fake = {
     },
 };
 
+// ── the state, in one named place ────────────────────────────────────────────
+
+// Schema-first: the shape lives here, so a node body, the run input, and the
+// Result are all checked against the same nameable type instead of re-deriving it.
+const CheckoutState = {
+    cart: channel.lastWrite<string[]>([]),
+    log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CheckoutState = StateOf<typeof CheckoutState>; // { cart: string[]; log: string[] }
+
 // ── the graph ───────────────────────────────────────────────────────────────
 
-const g = graph("checkout")
-    .channel("cart", channel.lastWrite<string[]>([]))
-    .channel("log", channel.append<string>())
+const g = graph("checkout", CheckoutState)
     .node("checkout", async (state, ctx) => {
         const order = await ctx.step("create_order", () => Fake.createOrder(state.cart));
 
@@ -139,7 +150,7 @@ async function main(): Promise<number> {
     const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
 
     console.log("\n── run 1: user asks to check out ─────────────────────────────");
-    let result: Result<typeof g.channels> = await run(g, { cart: ["coffee", "mug"] }, opts);
+    let result: Result<typeof CheckoutState> = await run(g, { cart: ["coffee", "mug"] }, opts);
     let round = 1;
 
     // The generic HITL loop: keep answering until the thread stops asking. It
