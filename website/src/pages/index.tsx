@@ -70,7 +70,7 @@ function HomepageHeader() {
           </Link>
         </div>
         <div className={styles.codeBlock}>
-          <CodeBlock language="tsx">
+          <CodeBlock language="ts">
             {`import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
 
 const g = graph("checkout")
