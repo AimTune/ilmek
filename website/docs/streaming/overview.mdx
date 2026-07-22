@@ -52,6 +52,24 @@ graph state to discover a pause — the defect this design exists to remove.
 <TabItem value="ts" label="TypeScript">
 
 ```ts
+import { graph, channel, START, END, stream, streamModes } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Support state — one append-only channel of messages. */
+const SupportState = {
+  messages: channel.append<string>(),
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;
+
+const g = graph("support", SupportState)
+  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))
+  .edge(START, "agent")
+  .edge("agent", END)
+  .compile();
+
+const input = { messages: ["hello"] };
+
 // full event stream
 for await (const ev of stream(g, input)) console.log(ev);
 
@@ -63,6 +81,22 @@ for await (const part of streamModes(g, input, ["messages", "updates"])) { /* �
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
+using Ilmek;
+
+/// <summary>Support state — one append-only channel of messages.</summary>
+sealed class SupportState
+{
+    [Append] public List<string> Messages { get; set; } = new();
+}
+
+var g = Graph.Create<SupportState>("support")
+    .Node("agent", (state, ctx) => Update.For<SupportState>().Append(s => s.Messages, "hi"))
+    .Edge(Graph.Start, "agent")
+    .Edge("agent", Graph.End)
+    .Compile();
+
+var input = Update.For<SupportState>().Append(s => s.Messages, "hello");
+
 // full event stream
 await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
 

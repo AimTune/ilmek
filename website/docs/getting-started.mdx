@@ -56,22 +56,25 @@ Targets .NET 9.
 ## Your first graph
 
 A graph is a set of **channels** (the state), **nodes** (the work), and **edges**
-(the flow). The state is checked at compile time, so a typo'd channel is an error
-long before it runs.
+(the flow). The state is **typed**: it lives in one named place, so a node body and
+the update it returns are both checked against it.
 
 <Tabs groupId="lang">
 <TabItem value="ts" label="TypeScript">
 
-Each `.channel()` widens the builder's state type, so a node update is checked
-against exactly the channels declared so far.
-
 ```ts
-import { graph, channel, START, END, run, stream } from "@ilmek/core";
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
 
-/** A support graph: one node that appends a message to the log. */
-const g = graph("support")
-  .channel("messages", channel.append<string>())   // widens the state type
-  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))
+/** Support state — one append-only channel of messages. */
+const SupportState = {
+  messages: channel.append<string>(),
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;   // { messages: string[] }
+
+const g = graph("support", SupportState)
+  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))   // state.messages: string[]
   .edge(START, "agent")
   .edge("agent", END)
   .compile();
@@ -80,30 +83,21 @@ const { status, state } = await run(g, { messages: ["hi"] });
 console.log(status, state.messages);   // "done" [ "hi", "hi" ]
 ```
 
-Prefer events? The same run is one canonical stream:
-
-```ts
-for await (const ev of stream(g, { messages: ["hi"] })) console.log(ev);
-```
-
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
-
-State is a class; each property is a channel, and its reducer is declared with an
-attribute (`[Append]`, or the default last-write). No `.Channel()` calls needed.
 
 ```csharp
 using Ilmek;
 
-/// <summary>A support graph: one node that appends a message to the log.</summary>
-public sealed class SupportState
+/// <summary>Support state — one append-only channel of messages.</summary>
+sealed class SupportState
 {
     [Append] public List<string> Messages { get; set; } = new();
 }
 
 var g = Graph.Create<SupportState>("support")
     .Node("agent", (state, ctx) =>
-        Update.For<SupportState>().Append(s => s.Messages, "hi"))
+        Update.For<SupportState>().Append(s => s.Messages, "hi"))   // state.Messages: List<string>
     .Edge(Graph.Start, "agent")
     .Edge("agent", Graph.End)
     .Compile();
@@ -113,7 +107,22 @@ var result = await IlmekRuntime.RunAsync(g, input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 
+</TabItem>
+</Tabs>
+
 Prefer events? The same run is one canonical stream:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { stream } from "@ilmek/core";
+
+for await (const ev of stream(g, { messages: ["hi"] })) console.log(ev);
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
 await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
@@ -122,52 +131,32 @@ await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
 </TabItem>
 </Tabs>
 
-## Add a pause
-
-Give a node a durable thread (a `threadId` + a checkpointer) and it can
-**interrupt** — halt, persist, and resume later with a human's answer.
-
-<Tabs groupId="lang">
-<TabItem value="ts" label="TypeScript">
-
-```ts
-import { run, resume, InMemoryCheckpointer } from "@ilmek/core";
-
-const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
-
-const paused = await run(g, { messages: ["buy"] }, opts);  // status: "interrupted"
-const done = await resume(g, "yes", opts);                 // status: "done"
-```
-
-</TabItem>
-<TabItem value="csharp" label=".NET (C#)">
-
-```csharp
-var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
-
-var buy = Update.For<SupportState>().Append(s => s.Messages, "buy");
-var paused = await IlmekRuntime.RunAsync(g, buy, opts);        // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);   // Status: Done
-```
-
-</TabItem>
-</Tabs>
-
-`InMemoryCheckpointer` is enough to feel the model. For a pause that survives a
-process restart, swap it for [SQLite](/checkpointers/sqlite) or
-[Postgres](/checkpointers/postgres) — nothing else in your code changes.
-
 ## The move that matters
 
 Wrap side effects in a **step**. On the resume pass, a completed step returns its
-**journaled** value instead of running again.
+**journaled** value instead of running again — and a node can **interrupt** to pause
+for a human, given a durable thread (a `threadId` + a checkpointer).
 
 <Tabs groupId="lang">
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-const g = graph("checkout")
-  .channel("log", channel.append<string>())
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: (cart: string[]) => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string; total: number }, ok: string) => "charged" };
+
+/** Checkout state — the cart in, an append-only log out. */
+const CheckoutState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CheckoutState = StateOf<typeof CheckoutState>;
+
+const g = graph("checkout", CheckoutState)
   .node("checkout", async (state, ctx) => {
     /** Called once, ever. On resume this returns the journaled order. */
     const order = await ctx.step("create_order", () => Orders.create(state.cart));
@@ -180,14 +169,24 @@ const g = graph("checkout")
   })
   .edge(START, "checkout").edge("checkout", END)
   .compile();
+
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+const paused = await run(g, { cart: ["coffee", "mug"] }, opts);   // status: "interrupted"
+const done = await resume(g, "yes", opts);                        // status: "done"
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-/// <summary>Checkout state: the cart in, an append-only log out.</summary>
-public sealed class CheckoutState
+using Ilmek;
+
+// Stand-in services — swap for your real order + payment code.
+static class Orders { public static (string Id, decimal Total) Create(IReadOnlyList<string> cart) => ("ord-9001", 249.9m); }
+static class Payments { public static string Charge((string Id, decimal Total) order, string ok) => "charged"; }
+
+/// <summary>Checkout state — the cart in, an append-only log out.</summary>
+sealed class CheckoutState
 {
     public List<string> Cart { get; set; } = new();
     [Append] public List<string> Log { get; set; } = new();
@@ -208,13 +207,21 @@ var g = Graph.Create<CheckoutState>("checkout")
     .Edge(Graph.Start, "checkout")
     .Edge("checkout", Graph.End)
     .Compile();
+
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
+var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
+var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done
 ```
 
 </TabItem>
 </Tabs>
 
-That is what *resume from the line* means here: not a restored call stack, but
-**an effect that cannot happen twice**.
+`InMemoryCheckpointer` is enough to feel the model. For a pause that survives a
+process restart, swap it for [SQLite](/checkpointers/sqlite) or
+[Postgres](/checkpointers/postgres) — nothing else in your code changes. And
+*resume from the line* means exactly this: not a restored call stack, but **an
+effect that cannot happen twice**.
 
 ## Run the demos
 

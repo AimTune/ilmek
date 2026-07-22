@@ -19,25 +19,71 @@ Every graph engine that supports human-in-the-loop resumes a paused node by
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-/** The naive shape: the effect runs above the pause, so it re-runs on resume. */
-.node("checkout", async (state) => {
-  const order = Orders.create(state.cart);   // ← runs AGAIN on resume. Second order.
-  const ok = await interrupt({ question: "Charge?" });
-  Payments.charge(order, ok);
-})
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: (cart: string[]) => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string; total: number }, ok: string) => "charged" };
+
+/** Checkout state — the cart in, an append-only log out. */
+const CheckoutState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CheckoutState = StateOf<typeof CheckoutState>;
+
+const g = graph("checkout", CheckoutState)
+  // The naive shape: the effect runs above the pause, so it re-runs on resume.
+  .node("checkout", async (state, ctx) => {
+    const order = Orders.create(state.cart);   // ← runs AGAIN on resume. Second order.
+    const ok = await ctx.interrupt<string>({ question: "Charge?" });
+    Payments.charge(order, ok);
+    return { log: ["done"] };
+  })
+  .edge(START, "checkout").edge("checkout", END)
+  .compile();
+
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+const paused = await run(g, { cart: ["coffee", "mug"] }, opts);   // status: "interrupted"
+const done = await resume(g, "yes", opts);                        // status: "done" — but charged twice
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-/// <summary>The naive shape: the effect runs above the pause, so it re-runs on resume.</summary>
-.Node("checkout", async (state, ctx) =>
+using Ilmek;
+
+// Stand-in services — swap for your real order + payment code.
+static class Orders { public static (string Id, decimal Total) Create(IReadOnlyList<string> cart) => ("ord-9001", 249.9m); }
+static class Payments { public static string Charge((string Id, decimal Total) order, string ok) => "charged"; }
+
+/// <summary>Checkout state — the cart in, an append-only log out.</summary>
+sealed class CheckoutState
 {
-    var order = Orders.Create(state.Cart);   // ← runs AGAIN on resume. Second order.
-    var ok = await ctx.InterruptAsync<string>(new { question = "Charge?" });
-    Payments.Charge(order, ok);
-})
+    public List<string> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<CheckoutState>("checkout")
+    // The naive shape: the effect runs above the pause, so it re-runs on resume.
+    .Node("checkout", async (state, ctx) =>
+    {
+        var order = Orders.Create(state.Cart);   // ← runs AGAIN on resume. Second order.
+        var ok = await ctx.InterruptAsync<string>(new { question = "Charge?" });
+        Payments.Charge(order, ok);
+        return Update.For<CheckoutState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "checkout")
+    .Edge("checkout", Graph.End)
+    .Compile();
+
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
+var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
+var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done — but charged twice
 ```
 
 </TabItem>
@@ -57,35 +103,79 @@ journal replays its recorded result instead of calling it again:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-/** The fix: each effect is a journaled step, so replay never re-runs it. */
-.node("checkout", async (state, ctx) => {
-  // Called once, ever. On the resume pass this returns the journaled order.
-  const order = await ctx.step("create_order", () => Orders.create(state.cart));
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
 
-  // First pass: the task halts here. Resume pass: returns the human's answer.
-  const ok = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: (cart: string[]) => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string; total: number }, ok: string) => "charged" };
 
-  await ctx.step("charge", () => Payments.charge(order, ok));
-  return { log: ["done"] };
-})
+/** Checkout state — the cart in, an append-only log out. */
+const CheckoutState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CheckoutState = StateOf<typeof CheckoutState>;
+
+const g = graph("checkout", CheckoutState)
+  // The fix: each effect is a journaled step, so replay never re-runs it.
+  .node("checkout", async (state, ctx) => {
+    // Called once, ever. On the resume pass this returns the journaled order.
+    const order = await ctx.step("create_order", () => Orders.create(state.cart));
+
+    // First pass: the task halts here. Resume pass: returns the human's answer.
+    const ok = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+
+    await ctx.step("charge", () => Payments.charge(order, ok));
+    return { log: ["done"] };
+  })
+  .edge(START, "checkout").edge("checkout", END)
+  .compile();
+
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+const paused = await run(g, { cart: ["coffee", "mug"] }, opts);   // status: "interrupted"
+const done = await resume(g, "yes", opts);                        // status: "done" — charged once
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-/// <summary>The fix: each effect is a journaled step, so replay never re-runs it.</summary>
-.Node("checkout", async (state, ctx) =>
+using Ilmek;
+
+// Stand-in services — swap for your real order + payment code.
+static class Orders { public static (string Id, decimal Total) Create(IReadOnlyList<string> cart) => ("ord-9001", 249.9m); }
+static class Payments { public static string Charge((string Id, decimal Total) order, string ok) => "charged"; }
+
+/// <summary>Checkout state — the cart in, an append-only log out.</summary>
+sealed class CheckoutState
 {
-    // Called once, ever. On the resume pass this returns the journaled order.
-    var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
+    public List<string> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
+}
 
-    // First pass: the task halts here. Resume pass: returns the human's answer.
-    var ok = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+var g = Graph.Create<CheckoutState>("checkout")
+    // The fix: each effect is a journaled step, so replay never re-runs it.
+    .Node("checkout", async (state, ctx) =>
+    {
+        // Called once, ever. On the resume pass this returns the journaled order.
+        var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
 
-    await ctx.StepAsync("charge", () => Payments.Charge(order, ok));
-    return Update.For<CheckoutState>().Append(s => s.Log, "done");
-})
+        // First pass: the task halts here. Resume pass: returns the human's answer.
+        var ok = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+
+        await ctx.StepAsync("charge", () => Payments.Charge(order, ok));
+        return Update.For<CheckoutState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "checkout")
+    .Edge("checkout", Graph.End)
+    .Compile();
+
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
+var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
+var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done — charged once
 ```
 
 </TabItem>
@@ -136,14 +226,74 @@ instead of re-running:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.node("charge_then_call", fn, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in services — a card charge, then a flaky API that fails twice.
+const Payments = { charge: (cart: string[]) => "charged" };
+let attempts = 0;
+const FlakyApi = { call: () => { if (++attempts < 3) throw new Error("503"); return "ok"; } };
+
+/** Charge state — the cart in, an append-only log out. */
+const ChargeState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type ChargeState = StateOf<typeof ChargeState>;
+
+const g = graph("charge", ChargeState)
+  .node("charge_then_call", async (state, ctx) => {
+    // Charged once; the completed step replays from the journal on every retry.
+    await ctx.step("charge", () => Payments.charge(state.cart));
+    // Flaky — retried without charging twice.
+    const res = await ctx.step("call_api", () => FlakyApi.call());
+    return { log: [res] };
+  }, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
+  .edge(START, "charge_then_call").edge("charge_then_call", END)
+  .compile();
+
+const { status, state } = await run(g, { cart: ["coffee"] });
+console.log(status, state.log);   // "done" [ "ok" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Node("charge_then_call", fn, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+using Ilmek;
+
+// Stand-in services — a card charge, then a flaky API that fails twice.
+static class Payments { public static string Charge(IReadOnlyList<string> cart) => "charged"; }
+static class FlakyApi
+{
+    static int _attempts;
+    public static string Call() => ++_attempts < 3 ? throw new Exception("503") : "ok";
+}
+
+/// <summary>Charge state — the cart in, an append-only log out.</summary>
+sealed class ChargeState
+{
+    public List<string> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<ChargeState>("charge")
+    .Node("charge_then_call", async (state, ctx) =>
+    {
+        // Charged once; the completed step replays from the journal on every retry.
+        await ctx.StepAsync("charge", () => Payments.Charge(state.Cart));
+        // Flaky — retried without charging twice.
+        var res = await ctx.StepAsync("call_api", () => FlakyApi.Call());
+        return Update.For<ChargeState>().Append(s => s.Log, res);
+    }, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+    .Edge(Graph.Start, "charge_then_call")
+    .Edge("charge_then_call", Graph.End)
+    .Compile();
+
+var input = Update.For<ChargeState>().Set(s => s.Cart, new List<string> { "coffee" });
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 
 </TabItem>

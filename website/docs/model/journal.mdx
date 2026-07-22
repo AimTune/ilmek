@@ -46,41 +46,85 @@ it already completed returns instantly from the journal:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-async node(state, ctx) {
-  // 1st pass: calls Orders.create, journals the result.
-  // resume pass: returns the journaled order. Orders.create is NOT called.
-  const order = await ctx.step("create_order", () => Orders.create(state.cart));
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
 
-  // 1st pass: no answer in the journal → the task halts here.
-  // resume pass: returns the user's answer from the journal.
-  const answer = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: (cart: string[]) => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string; total: number }, ok: string) => "charged" };
 
-  // Only ever reached on the resume pass.
-  await ctx.step("charge", () => Payments.charge(order, answer));
+/** Checkout state — the cart in, an append-only log out. */
+const CheckoutState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
 
-  return { messages: ["done"] };
-}
+type CheckoutState = StateOf<typeof CheckoutState>;
+
+const g = graph("checkout", CheckoutState)
+  .node("checkout", async (state, ctx) => {
+    // 1st pass: calls Orders.create, journals the result.
+    // resume pass: returns the journaled order. Orders.create is NOT called.
+    const order = await ctx.step("create_order", () => Orders.create(state.cart));
+
+    // 1st pass: no answer in the journal → the task halts here.
+    // resume pass: returns the user's answer from the journal.
+    const answer = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+
+    // Only ever reached on the resume pass.
+    await ctx.step("charge", () => Payments.charge(order, answer));
+
+    return { log: ["done"] };
+  })
+  .edge(START, "checkout").edge("checkout", END)
+  .compile();
+
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+const paused = await run(g, { cart: ["coffee", "mug"] }, opts);   // status: "interrupted"
+const done = await resume(g, "yes", opts);                        // status: "done"
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-async (state, ctx) =>
+using Ilmek;
+
+// Stand-in services — swap for your real order + payment code.
+static class Orders { public static (string Id, decimal Total) Create(IReadOnlyList<string> cart) => ("ord-9001", 249.9m); }
+static class Payments { public static string Charge((string Id, decimal Total) order, string ok) => "charged"; }
+
+/// <summary>Checkout state — the cart in, an append-only log out.</summary>
+sealed class CheckoutState
 {
-    // 1st pass: calls Orders.Create, journals the result.
-    // resume pass: returns the journaled order. Orders.Create is NOT called.
-    var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
-
-    // 1st pass: no answer in the journal → the task halts here.
-    // resume pass: returns the user's answer from the journal.
-    var answer = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
-
-    // Only ever reached on the resume pass.
-    await ctx.StepAsync("charge", () => Payments.Charge(order, answer));
-
-    return Update.For<CheckoutState>().Append(s => s.Messages, "done");
+    public List<string> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
 }
+
+var g = Graph.Create<CheckoutState>("checkout")
+    .Node("checkout", async (state, ctx) =>
+    {
+        // 1st pass: calls Orders.Create, journals the result.
+        // resume pass: returns the journaled order. Orders.Create is NOT called.
+        var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
+
+        // 1st pass: no answer in the journal → the task halts here.
+        // resume pass: returns the user's answer from the journal.
+        var answer = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+
+        // Only ever reached on the resume pass.
+        await ctx.StepAsync("charge", () => Payments.Charge(order, answer));
+
+        return Update.For<CheckoutState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "checkout")
+    .Edge("checkout", Graph.End)
+    .Compile();
+
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
+var paused = await IlmekRuntime.RunAsync(g, input, opts);       // Status: Interrupted
+var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);   // Status: Done
 ```
 
 </TabItem>
@@ -104,19 +148,69 @@ the data:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-for (const item of state.cart) {
-  await ctx.step(`charge:${item.id}`, () => Payments.charge(item));   // stable
-}
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in payment service — swap for your real payment code.
+const Payments = { charge: (item: { id: string }) => "charged" };
+
+/** Cart state — one line item per product, each with a stable id. */
+const CartState = {
+  cart: channel.lastWrite<{ id: string }[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CartState = StateOf<typeof CartState>;
+
+const g = graph("charge-each", CartState)
+  .node("charge", async (state, ctx) => {
+    for (const item of state.cart) {
+      await ctx.step(`charge:${item.id}`, () => Payments.charge(item));   // stable
+    }
+    return { log: ["done"] };
+  })
+  .edge(START, "charge").edge("charge", END)
+  .compile();
+
+const { status } = await run(g, { cart: [{ id: "sku-1" }, { id: "sku-2" }] });
+console.log(status);   // "done"
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-foreach (var item in state.Cart)
+using Ilmek;
+
+// Stand-in payment service — swap for your real payment code.
+static class Payments { public static string Charge(Item item) => "charged"; }
+
+/// <summary>A cart line item with a stable id.</summary>
+sealed record Item(string Id);
+
+/// <summary>Cart state — one line item per product, each with a stable id.</summary>
+sealed class CartState
 {
-    await ctx.StepAsync($"charge:{item.Id}", () => Payments.Charge(item));   // stable
+    public List<Item> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
 }
+
+var g = Graph.Create<CartState>("charge-each")
+    .Node("charge", async (state, ctx) =>
+    {
+        foreach (var item in state.Cart)
+        {
+            await ctx.StepAsync($"charge:{item.Id}", () => Payments.Charge(item));   // stable
+        }
+        return Update.For<CartState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "charge")
+    .Edge("charge", Graph.End)
+    .Compile();
+
+var input = Update.For<CartState>().Set(s => s.Cart, new List<Item> { new("sku-1"), new("sku-2") });
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine(result.Status);   // Done
 ```
 
 </TabItem>

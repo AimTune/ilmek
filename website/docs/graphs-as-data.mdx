@@ -17,6 +17,8 @@ one, because retrofitting it is expensive. This is the foundation for a
 drag-and-drop builder: a CRUD app over a JSON document plus a registry browser.
 Nothing in the engine knows the builder exists.
 
+The stored form is plain data — this JSON is the whole graph:
+
 ```json
 {
   "name": "support",
@@ -29,20 +31,62 @@ Nothing in the engine knows the builder exists.
 }
 ```
 
+Build a graph from that spec and serialize it straight back — the round-trip is a
+conformance test:
+
 <Tabs groupId="lang">
 <TabItem value="ts" label="TypeScript">
 
 ```ts
+import { fromSpec, toSpec, START, END } from "@ilmek/core";
+import type { GraphSpec, NodeRegistry } from "@ilmek/core";
+import { deepStrictEqual } from "node:assert";
+
+/** Maps a node `type` to a factory. DB-defined graphs reference these by name. */
+const registry: NodeRegistry = {
+  llm: (config) => async (state, ctx) => ({ messages: [`${config.model} replies`] }),
+};
+
+/** The stored document — plain data, no executable text. */
+const spec: GraphSpec = {
+  name: "support",
+  channels: { messages: { reducer: "append" } },
+  nodes: [{ id: "agent", type: "llm", config: { model: "claude-opus-4-8" } }],
+  edges: [
+    { from: START, to: "agent" },
+    { from: "agent", to: END },
+  ],
+};
+
 const g = fromSpec(spec, registry).compile();
-assert.deepEqual(toSpec(g), spec);   // round-trip is a conformance test
+deepStrictEqual(toSpec(g), spec);   // round-trip is a conformance test
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
-The same spec compiles through the node registry in .NET, and the round-trip is a
-conformance test there too: build the graph from the spec, serialize it back, and
-assert you recover exactly the document you started from.
+```csharp
+using Ilmek;
+
+// Maps a node `type` to a builder. DB-defined graphs reference these by name.
+var registry = new Dictionary<string, NodeBuilder>
+{
+    ["llm"] = config => (state, ctx) =>
+        new Dictionary<string, object?> { ["messages"] = new[] { $"{config["model"]} replies" } },
+};
+
+// The stored document — plain data, no executable text.
+var spec = new GraphSpec
+{
+    Name = "support",
+    Channels = new Dictionary<string, SpecChannel> { ["messages"] = new("append") },
+    Nodes = new[] { new SpecNode("agent", "llm", new Dictionary<string, object?> { ["model"] = "claude-opus-4-8" }) },
+    Edges = new[] { new SpecEdge(Graph.Start, "agent"), new SpecEdge("agent", Graph.End) },
+};
+
+var g = Spec.FromSpec(spec, registry).Compile();
+var rebuilt = Spec.ToSpec(g);   // GraphSpec, value-equal to spec — a conformance test
+```
 
 </TabItem>
 </Tabs>

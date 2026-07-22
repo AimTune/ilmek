@@ -29,6 +29,25 @@ the engine writes it into the journal entry and replays the task.
 <TabItem value="ts" label="TypeScript">
 
 ```ts
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Support state — one append-only channel of messages. */
+const SupportState = {
+  messages: channel.append<string>(),
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;
+
+const g = graph("support", SupportState)
+  .node("agent", async (state, ctx) => {
+    // First pass halts here; the resume pass returns the human's answer.
+    const answer = await ctx.interrupt<string>({ question: "Approve purchase?" });
+    return { messages: [`approved: ${answer}`] };
+  })
+  .edge(START, "agent").edge("agent", END)
+  .compile();
+
 const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
 
 const paused = await run(g, { messages: ["buy"] }, opts);  // status: "interrupted"
@@ -39,6 +58,25 @@ const done = await resume(g, "yes", opts);                 // status: "done"
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
+using Ilmek;
+
+/// <summary>Support state — one append-only channel of messages.</summary>
+sealed class SupportState
+{
+    [Append] public List<string> Messages { get; set; } = new();
+}
+
+var g = Graph.Create<SupportState>("support")
+    .Node("agent", async (state, ctx) =>
+    {
+        // First pass halts here; the resume pass returns the human's answer.
+        var answer = await ctx.InterruptAsync<string>(new { question = "Approve purchase?" });
+        return Update.For<SupportState>().Append(s => s.Messages, $"approved: {answer}");
+    })
+    .Edge(Graph.Start, "agent")
+    .Edge("agent", Graph.End)
+    .Compile();
+
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 
 var buy = Update.For<SupportState>().Append(s => s.Messages, "buy");
@@ -99,16 +137,64 @@ Auto-suffixing makes the bare form safe even for several pauses in one node:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-const ok   = await ctx.interrupt({ question: "Delete production?" });   // interrupt#0
-const sure = await ctx.interrupt({ question: "Really sure?" });         // interrupt#1
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Danger state — an append-only log of what was confirmed. */
+const DangerState = {
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type DangerState = StateOf<typeof DangerState>;
+
+const g = graph("danger", DangerState)
+  .node("confirm", async (state, ctx) => {
+    const ok   = await ctx.interrupt({ question: "Delete production?" });   // interrupt#0
+    const sure = await ctx.interrupt({ question: "Really sure?" });         // interrupt#1
+    return { log: [`deleted: ${ok} / ${sure}`] };
+  })
+  .edge(START, "confirm").edge("confirm", END)
+  .compile();
+
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+
+// One interrupt is pending at a time, so the bare-answer form stays safe
+// even though the node pauses twice.
+await run(g, {}, opts);                       // halts on interrupt#0
+await resume(g, "yes", opts);                 // answers #0, halts on interrupt#1
+const done = await resume(g, "yes", opts);    // answers #1 → status: "done"
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-var ok   = await ctx.InterruptAsync<string>(new { question = "Delete production?" });   // interrupt#0
-var sure = await ctx.InterruptAsync<string>(new { question = "Really sure?" });         // interrupt#1
+using Ilmek;
+
+/// <summary>Danger state — an append-only log of what was confirmed.</summary>
+sealed class DangerState
+{
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<DangerState>("danger")
+    .Node("confirm", async (state, ctx) =>
+    {
+        var ok   = await ctx.InterruptAsync<string>(new { question = "Delete production?" });   // interrupt#0
+        var sure = await ctx.InterruptAsync<string>(new { question = "Really sure?" });         // interrupt#1
+        return Update.For<DangerState>().Append(s => s.Log, $"deleted: {ok} / {sure}");
+    })
+    .Edge(Graph.Start, "confirm")
+    .Edge("confirm", Graph.End)
+    .Compile();
+
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+
+// One interrupt is pending at a time, so the bare-answer form stays safe
+// even though the node pauses twice.
+await IlmekRuntime.RunAsync(g, new DangerState(), opts);   // halts on interrupt#0
+await IlmekRuntime.ResumeAsync(g, "yes", opts);            // answers #0, halts on interrupt#1
+var done = await IlmekRuntime.ResumeAsync(g, "yes", opts); // answers #1 → Status: Done
 ```
 
 </TabItem>

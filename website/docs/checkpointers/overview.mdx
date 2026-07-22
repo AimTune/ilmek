@@ -1,0 +1,124 @@
+---
+id: overview
+title: Checkpointers
+sidebar_label: Overview
+sidebar_position: 0
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# Checkpointers
+
+*Normative: [MODEL.md §7](/reference/spec).*
+
+A checkpointer is the **memory port** — one interface, many backends. It is what
+makes a [pause](/model/interrupts) or a resumable run outlive the process that
+created it. Give a run a `threadId` and a checkpointer and every superstep
+persists atomically.
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: (cart: string[]) => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string; total: number }, ok: string) => "charged" };
+
+/** Checkout state — the cart in, an append-only log out. */
+const CheckoutState = {
+  cart: channel.lastWrite<string[]>([]),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type CheckoutState = StateOf<typeof CheckoutState>;
+
+const g = graph("checkout", CheckoutState)
+  .node("checkout", async (state, ctx) => {
+    const order = await ctx.step("create_order", () => Orders.create(state.cart));
+    const ok = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+    await ctx.step("charge", () => Payments.charge(order, ok));
+    return { log: ["done"] };
+  })
+  .edge(START, "checkout").edge("checkout", END)
+  .compile();
+
+const checkpointer = new InMemoryCheckpointer();
+const opts = { threadId: "conv-42", checkpointer };
+await run(g, { cart: ["coffee", "mug"] }, opts);   // persists as it goes
+await resume(g, "yes", opts);                       // picks up from the last checkpoint
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+// Stand-in services — swap for your real order + payment code.
+static class Orders { public static (string Id, decimal Total) Create(IReadOnlyList<string> cart) => ("ord-9001", 249.9m); }
+static class Payments { public static string Charge((string Id, decimal Total) order, string ok) => "charged"; }
+
+/// <summary>Checkout state — the cart in, an append-only log out.</summary>
+sealed class CheckoutState
+{
+    public List<string> Cart { get; set; } = new();
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<CheckoutState>("checkout")
+    .Node("checkout", async (state, ctx) =>
+    {
+        var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
+        var ok = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+        await ctx.StepAsync("charge", () => Payments.Charge(order, ok));
+        return Update.For<CheckoutState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "checkout")
+    .Edge("checkout", Graph.End)
+    .Compile();
+
+var checkpointer = new InMemoryCheckpointer();
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = checkpointer };
+var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
+await IlmekRuntime.RunAsync(g, input, opts);      // persists as it goes
+await IlmekRuntime.ResumeAsync(g, "yes", opts);   // picks up from the last checkpoint
+```
+
+</TabItem>
+</Tabs>
+
+## The port
+
+```
+put(threadId, checkpoint)            -> void
+get(threadId, checkpointId | null)   -> checkpoint | null    // null = latest
+list(threadId, opts)                 -> checkpoint[]          // newest first
+putJournal(taskId, entries)          -> void
+getJournal(taskId)                   -> entry[]
+deleteThread(threadId)               -> void
+```
+
+A **checkpoint** records `{ id, parentId, threadId, channels, next, pending, step, ts }`.
+Because every checkpoint names its parent, a thread is a **tree, not a line**:
+resuming from a non-latest checkpoint forks a branch (time travel / what-if).
+Implementations must not assume a single chain.
+
+:::note ilmek checkpoints are ilmek's own
+They hold engine state — channels, journals, and pending pauses — not a host's
+transcript or conversation store, which a host keeps independently.
+:::
+
+## Available backends
+
+| Package | Backend | Use when | Status |
+|---|---|---|---|
+| built into `@ilmek/core` | `InMemoryCheckpointer` | tests, demos, single run | TS ✅ · .NET ✅ |
+| [`@ilmek/checkpoint-sqlite`](/checkpointers/sqlite) | one SQLite file | single-process durability | TS ✅ · .NET ✅ |
+| [`@ilmek/checkpoint-postgres`](/checkpointers/postgres) | Postgres | threads shared across processes | TS ✅ · .NET ⬜ |
+
+`InMemoryCheckpointer` is enough to feel the model. Swap in SQLite or Postgres
+and nothing else in your code changes.

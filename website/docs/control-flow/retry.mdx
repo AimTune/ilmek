@@ -18,17 +18,75 @@ A node may declare a retry policy:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.node("call_api", fn, {
-  retry: { maxAttempts: 3, backoffMs: 200, factor: 2, retryOn: isTransient },
-})
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf, RetryPolicy } from "@ilmek/core";
+
+// A flaky service that fails the first 2 calls, then succeeds.
+let calls = 0;
+const Api = { fetch: () => { if (++calls <= 2) throw new Error(`503 (attempt ${calls})`); return "ok"; } };
+
+/** Retry only errors this accepts — here, transient 503s. */
+const isTransient = (e: unknown) => e instanceof Error && e.message.startsWith("503");
+
+/** State — one append-only log channel. */
+const ApiState = {
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type ApiState = StateOf<typeof ApiState>;
+
+const g = graph("resilient", ApiState)
+  .node("call_api", (state, ctx) => {
+    const body = Api.fetch();   // throws on the first 2 calls; the engine re-invokes the node
+    return { log: [body] };
+  }, {
+    retry: { maxAttempts: 3, backoffMs: 200, factor: 2, retryOn: isTransient },
+  })
+  .edge(START, "call_api")
+  .edge("call_api", END)
+  .compile();
+
+const { status, state } = await run(g, { log: [] });
+console.log(status, state.log);   // "done" [ "ok" ]  — after two retries
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Node("call_api", fn,
-    retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+using Ilmek;
+using System;
+using System.Collections.Generic;
+
+/// <summary>A flaky service that fails the first 2 calls, then succeeds.</summary>
+static class Api
+{
+    static int _calls;
+    public static string Fetch()
+    {
+        if (++_calls <= 2) throw new InvalidOperationException($"503 (attempt {_calls})");
+        return "ok";
+    }
+}
+
+/// <summary>State — one append-only log channel.</summary>
+sealed class ApiState
+{
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<ApiState>("resilient")
+    .Node("call_api", (state, ctx) =>
+    {
+        var body = Api.Fetch();   // throws on the first 2 calls; the engine re-invokes the node
+        return Update.For<ApiState>().Append(s => s.Log, body);
+    }, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+    .Edge(Graph.Start, "call_api")
+    .Edge("call_api", Graph.End)
+    .Compile();
+
+var result = await IlmekRuntime.RunAsync(g, Update.For<ApiState>());
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");   // Done [ok] — after two retries
 ```
 
 </TabItem>
@@ -50,21 +108,83 @@ call **without charging twice**:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.node("charge_then_call", async (state, ctx) => {
-  await ctx.step("charge", () => Payments.charge(state.order));   // journaled — runs once
-  return ctx.step("notify", () => Api.callFlaky(state.order));    // retried on failure
-}, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf, RetryPolicy } from "@ilmek/core";
+
+// Two services: charging must happen once; the notify API is flaky.
+const Payments = { charge: (order: string) => "charged" };
+let notifyCalls = 0;
+const Api = { callFlaky: (order: string) => { if (++notifyCalls <= 2) throw new Error("503"); return "notified"; } };
+
+/** State — the order id in, an append-only log out. */
+const OrderState = {
+  order: channel.lastWrite<string>(""),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type OrderState = StateOf<typeof OrderState>;
+
+const retry: RetryPolicy = { maxAttempts: 3, backoffMs: 200, factor: 2 };
+
+const g = graph("charge-notify", OrderState)
+  .node("charge_then_call", async (state, ctx) => {
+    await ctx.step("charge", () => Payments.charge(state.order));       // journaled — runs once
+    const note = await ctx.step("notify", () => Api.callFlaky(state.order));   // retried on failure
+    // safe because the charge step is journaled — a retry re-runs the body but NOT the charge
+    return { log: [note] };
+  }, { retry })
+  .edge(START, "charge_then_call")
+  .edge("charge_then_call", END)
+  .compile();
+
+const { status, state } = await run(g, { order: "ord-9001" });
+console.log(status, state.log);   // "done" [ "notified" ]  — charged exactly once
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Node("charge_then_call", async (state, ctx) =>
+using Ilmek;
+using System;
+using System.Collections.Generic;
+
+/// <summary>Two services: charging must happen once; the notify API is flaky.</summary>
+static class Payments { public static string Charge(string order) => "charged"; }
+static class Api
 {
-    await ctx.StepAsync("charge", () => Payments.Charge(state.Order));   // journaled — runs once
-    return await ctx.StepAsync("notify", () => Api.CallFlaky(state.Order));  // retried on failure
-}, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+    static int _calls;
+    public static string CallFlaky(string order)
+    {
+        if (++_calls <= 2) throw new InvalidOperationException("503");
+        return "notified";
+    }
+}
+
+/// <summary>State — the order id in, an append-only log out.</summary>
+sealed class OrderState
+{
+    public string Order { get; set; } = "";
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var retry = new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 };
+
+var g = Graph.Create<OrderState>("charge-notify")
+    .Node("charge_then_call", async (state, ctx) =>
+    {
+        await ctx.StepAsync("charge", () => Payments.Charge(state.Order));       // journaled — runs once
+        var note = await ctx.StepAsync("notify", () => Api.CallFlaky(state.Order));   // retried on failure
+        // safe because the charge step is journaled — a retry re-runs the body but NOT the charge
+        return Update.For<OrderState>().Append(s => s.Log, note);
+    }, retry: retry)
+    .Edge(Graph.Start, "charge_then_call")
+    .Edge("charge_then_call", Graph.End)
+    .Compile();
+
+var input = Update.For<OrderState>().Set(s => s.Order, "ord-9001");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");   // Done [notified] — charged once
 ```
 
 </TabItem>

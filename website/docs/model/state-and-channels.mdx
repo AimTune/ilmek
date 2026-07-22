@@ -25,11 +25,27 @@ typo'd channel is a compile error, not a runtime surprise.
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-const g = graph("support")
-  .channel("messages", channel.append<string>())   // list of strings
-  .channel("cart", channel.lastWrite<Cart>())       // last write wins
-  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))
-  // ...
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+type Cart = { items: string[] };
+
+/** Support state — the shape lives in one named place. */
+const SupportState = {
+  messages: channel.append<string>(),           // list of strings
+  cart: channel.lastWrite<Cart>({ items: [] }),  // last write wins
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;   // { messages: string[]; cart: Cart }
+
+const g = graph("support", SupportState)
+  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))   // update checked against channels
+  .edge(START, "agent")
+  .edge("agent", END)
+  .compile();
+
+const { status, state } = await run(g, { messages: ["hi"] });
+console.log(status, state.messages);   // "done" [ "hi", "hi" ]
 ```
 
 </TabItem>
@@ -37,6 +53,12 @@ const g = graph("support")
 
 ```csharp
 using Ilmek;
+
+/// <summary>A shopping cart — a last-write channel value.</summary>
+public sealed class Cart
+{
+    public List<string> Items { get; set; } = new();
+}
 
 /// <summary>Support state: each property is a channel; its reducer is an attribute.</summary>
 public sealed class SupportState
@@ -48,7 +70,13 @@ public sealed class SupportState
 var g = Graph.Create<SupportState>("support")
     .Node("agent", (state, ctx) =>
         Update.For<SupportState>().Append(s => s.Messages, "hi"))
-    // ...
+    .Edge(Graph.Start, "agent")
+    .Edge("agent", Graph.End)
+    .Compile();
+
+var input = Update.For<SupportState>().Append(s => s.Messages, "hi");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 
 </TabItem>

@@ -1,0 +1,124 @@
+---
+id: postgres
+title: Postgres checkpointer
+sidebar_label: Postgres
+sidebar_position: 2
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# `@ilmek/checkpoint-postgres`
+
+A durable [checkpointer](/checkpointers/overview) backed by Postgres — for threads
+shared across processes. No hard `pg` dependency: it talks to any
+node-postgres-style client (`query(text, params)`), so a `Client` or `Pool` drops
+in as-is.
+
+## Install
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```bash
+npm install @ilmek/core @ilmek/checkpoint-postgres pg
+```
+
+`pg` is not a hard dependency — any client exposing `query(text, params)` works —
+but it is the usual choice.
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+A .NET Postgres checkpointer is **on the roadmap**. Until it lands, use the
+[SQLite checkpointer](/checkpointers/sqlite) (`Ilmek.Checkpointer.Sqlite`) for
+durable threads today:
+
+```bash
+dotnet add package Ilmek.Core
+dotnet add package Ilmek.Checkpointer.Sqlite
+```
+
+</TabItem>
+</Tabs>
+
+## Usage
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { Pool } from "pg";
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+import { PostgresCheckpointer } from "@ilmek/checkpoint-postgres";
+
+/** Support state — one append-only channel of messages. */
+const SupportState = {
+  messages: channel.append<string>(),
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;
+
+const g = graph("support", SupportState)
+  .node("agent", async (state, ctx) => ({ messages: ["hi"] }))
+  .edge(START, "agent").edge("agent", END)
+  .compile();
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+const cp = new PostgresCheckpointer(pool);
+await cp.migrate();
+await run(g, { messages: ["hello"] }, { threadId: "conv-42", checkpointer: cp });
+```
+
+`migrate()` creates the two tables it needs (`ilmek_checkpoints`, `ilmek_journals`)
+if absent. It is idempotent — safe to call on every boot — or you can run the DDL
+yourself and skip it.
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+There is **no .NET Postgres checkpointer yet** — it is on the roadmap. For durable
+threads today, use the [SQLite checkpointer](/checkpointers/sqlite): open the file
+and hand it to the run, and nothing else in your graph code changes.
+
+```csharp
+using Ilmek;
+
+var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = cp };
+await IlmekRuntime.RunAsync(g, input, opts);
+```
+
+</TabItem>
+</Tabs>
+
+## Sharing one database
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+Pass `tablePrefix` so several apps can share a database without colliding:
+
+```ts
+new PostgresCheckpointer(pool, { tablePrefix: "billing" });
+// → billing_checkpoints, billing_journals
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+The .NET Postgres checkpointer — and its table-prefix option — is on the roadmap.
+With the [SQLite checkpointer](/checkpointers/sqlite), a separate database file per
+app gives you the same isolation today.
+
+</TabItem>
+</Tabs>
+
+## Bring your own client
+
+The checkpointer never opens or closes a connection — you own the `Pool`'s
+lifecycle. Any object with `query(text, params) => { rows }` satisfies its
+`SqlClient` interface, so a custom pool or a proxied client works as long as it
+speaks that shape.

@@ -23,20 +23,78 @@ names:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.router("fanout", (state) => state.items.map((item) => send("worker", { item })))
+import { graph, channel, START, END, send, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in worker service — swap for your real per-item work.
+const Shout = { process: (item: string) => item.toUpperCase() };
+
+/** Fan-out state — items in, one appended result per worker. */
+const FanState = {
+  items: channel.lastWrite<string[]>([]),
+  results: channel.append<string>(),
+} satisfies ChannelMap;
+
+type FanState = StateOf<typeof FanState>;
+
+/** A worker task's input is its OWN send payload, not the channel state. */
+type WorkerInput = { item: string };
+
+const g = graph("fanout", FanState)
+  .node("fanout", (state) => ({}))   // the router below fans out from here
+  .node("worker", (input: WorkerInput, ctx) => ({ results: [Shout.process(input.item)] }))
+  .node("collect", (state) => ({ results: [`collected ${state.results.length}`] }))
+  .edge(START, "fanout")
+  // one worker task per item, each with its OWN input (§14 send)
+  .router("fanout", (state) => state.items.map((item) => send("worker", { item })))
+  // fan-in is just a superstep boundary: collect runs once, after all workers reduce
+  .edge("worker", "collect")
+  .edge("collect", END)
+  .compile();
+
+const { status, state } = await run(g, { items: ["red", "green", "blue"] });
+console.log(status, state.results);   // "done" [ "RED", "GREEN", "BLUE", "collected 3" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Router("fanout", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new { item })))
-```
+using Ilmek;
+using System.Collections.Generic;
+using System.Linq;
 
-The worker declares its own input type:
+/// <summary>Stand-in worker service — swap for your real per-item work.</summary>
+static class Shout { public static string Process(string item) => item.ToUpperInvariant(); }
 
-```csharp
-.Node<WorkerInput>("worker", (input, ctx) => /* input is the send payload */)
+/// <summary>Fan-out state — items in, one appended result per worker.</summary>
+sealed class FanState
+{
+    public List<string> Items { get; set; } = new();
+    [Append] public List<string> Results { get; set; } = new();
+}
+
+/// <summary>A worker task's input is its OWN send payload, not the channel state.</summary>
+sealed class WorkerInput { public string Item { get; set; } = ""; }
+
+var g = Graph.Create<FanState>("fanout")
+    .Node("fanout", (state, ctx) => null)   // the router below fans out from here
+    // the worker declares its own input type — it receives the send payload
+    .Node<WorkerInput>("worker", (input, ctx) =>
+        Update.For<FanState>().Append(s => s.Results, Shout.Process(input.Item)))
+    .Node("collect", (state, ctx) =>
+        Update.For<FanState>().Append(s => s.Results, $"collected {state.Results.Count}"))
+    .Edge(Graph.Start, "fanout")
+    // one worker task per item, each with its OWN input (§14 send)
+    .Router("fanout", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new WorkerInput { Item = item })))
+    // fan-in is just a superstep boundary: collect runs once, after all workers reduce
+    .Edge("worker", "collect")
+    .Edge("collect", Graph.End)
+    .Compile();
+
+var input = Update.For<FanState>().Set(s => s.Items, new List<string> { "red", "green", "blue" });
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]");
 ```
 
 </TabItem>
@@ -67,21 +125,71 @@ When the fan-out set is only known *after* a node's work, return the sends in a
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.node("plan", (state, ctx) => {
-  const items = /* ...computed inside the node... */;
-  return command({ goto: items.map((i) => send("worker", i)) });
-})
+import { graph, channel, START, END, send, command, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in — the work that decides the fan-out set at run time.
+const Planner = { split: (topic: string) => topic.split(" ") };
+
+/** Fan-out state — a topic in, one appended result per discovered item. */
+const FanState = {
+  topic: channel.lastWrite<string>(""),
+  results: channel.append<string>(),
+} satisfies ChannelMap;
+
+type FanState = StateOf<typeof FanState>;
+
+type WorkerInput = { item: string };
+
+const g = graph("late-fanout", FanState)
+  .node("plan", (state, ctx) => {
+    const items = Planner.split(state.topic);   // fan-out set known only now
+    return command({ goto: items.map((item) => send("worker", { item })) });
+  })
+  .node("worker", (input: WorkerInput, ctx) => ({ results: [input.item.toUpperCase()] }))
+  .edge(START, "plan")   // "plan" has no static outgoing edge — it always returns a goto
+  .edge("worker", END)
+  .compile();
+
+const { status, state } = await run(g, { topic: "red green blue" });
+console.log(status, state.results);   // "done" [ "RED", "GREEN", "BLUE" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Node("plan", (state, ctx) =>
+using Ilmek;
+using System.Collections.Generic;
+using System.Linq;
+
+/// <summary>Stand-in — the work that decides the fan-out set at run time.</summary>
+static class Planner { public static string[] Split(string topic) => topic.Split(' '); }
+
+/// <summary>Fan-out state — a topic in, one appended result per discovered item.</summary>
+sealed class FanState
 {
-    var items = /* ...computed inside the node... */;
-    return Command.Goto_(items.Select(i => (object)new Send("worker", i)).ToArray());
-})
+    public string Topic { get; set; } = "";
+    [Append] public List<string> Results { get; set; } = new();
+}
+
+sealed class WorkerInput { public string Item { get; set; } = ""; }
+
+var g = Graph.Create<FanState>("late-fanout")
+    .Node("plan", (state, ctx) =>
+    {
+        var items = Planner.Split(state.Topic);   // fan-out set known only now
+        return Command.Goto_(items.Select(item => (object)new Send("worker", new WorkerInput { Item = item })).ToArray());
+    })
+    .Node<WorkerInput>("worker", (input, ctx) =>
+        Update.For<FanState>().Append(s => s.Results, input.Item.ToUpperInvariant()))
+    .Edge(Graph.Start, "plan")   // "plan" has no static outgoing edge — it always returns a goto
+    .Edge("worker", Graph.End)
+    .Compile();
+
+var input = Update.For<FanState>().Set(s => s.Topic, "red green blue");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]");
 ```
 
 </TabItem>

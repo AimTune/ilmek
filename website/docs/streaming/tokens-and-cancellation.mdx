@@ -21,14 +21,65 @@ it is generated" is universal, so a **token** has a fixed shape:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-{ type: "token", text, meta? }
+import { graph, channel, START, END, streamModes } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** A token has a fixed shape: { type: "token", text, meta? }. */
+type TokenChunk = { type: "token"; text: string; meta?: unknown };
+
+/** Answer state — the reply, streamed token by token. */
+const AnswerState = {
+  answer: channel.append<string>(),
+} satisfies ChannelMap;
+
+type AnswerState = StateOf<typeof AnswerState>;
+
+const g = graph("answer", AnswerState)
+  .node("responder", async (state, ctx) => {
+    // ctx.emitToken(text, meta?) — sugar for ctx.emit(token(...)); not journaled.
+    for (const tok of ["Hel", "lo"]) ctx.emitToken(tok, { model: "demo" });
+    return { answer: ["Hello"] };
+  })
+  .edge(START, "responder")
+  .edge("responder", END)
+  .compile();
+
+// the `messages` projection is exactly "the custom payloads that are tokens"
+for await (const part of streamModes(g, { answer: [] }, ["messages"])) {
+  process.stdout.write((part.data as TokenChunk).text);
+}
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-new { type = "token", text, meta }   // the shape ctx.EmitToken("text", meta) produces
+using Ilmek;
+
+/// <summary>Answer state — the reply, streamed token by token.</summary>
+sealed class AnswerState
+{
+    [Append] public List<string> Answer { get; set; } = new();
+}
+
+var g = Graph.Create<AnswerState>("answer")
+    .Node("responder", (state, ctx) =>
+    {
+        // ctx.EmitToken("text", meta) produces { type = "token", text, meta }; not journaled.
+        foreach (var tok in new[] { "Hel", "lo" }) ctx.EmitToken(tok, new { model = "demo" });
+        return Update.For<AnswerState>().Append(s => s.Answer, "Hello");
+    })
+    .Edge(Graph.Start, "responder")
+    .Edge("responder", Graph.End)
+    .Compile();
+
+// the `messages` projection is exactly "the custom payloads that are tokens"
+await foreach (var part in Streaming.Projected(
+    IlmekRuntime.Stream(g, Update.For<AnswerState>()),
+    new[] { StreamMode.Messages }))
+{
+    Console.Write(part.Data);
+}
 ```
 
 </TabItem>
@@ -63,20 +114,64 @@ boundary**: an aborted run stops there and ends with
 <TabItem value="ts" label="TypeScript">
 
 ```ts
+import { graph, channel, START, END, stream } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Work state — a log of what ran before the abort landed. */
+const WorkState = {
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type WorkState = StateOf<typeof WorkState>;
+
+const g = graph("work", WorkState)
+  .node("slow", async (state, ctx) => {
+    // Forward the signal to your own long awaits (an LLM call, a fetch).
+    await fetch("https://example.com/slow", { signal: ctx.signal });
+    return { log: ["done"] };
+  })
+  .edge(START, "slow")
+  .edge("slow", END)
+  .compile();
+
 const controller = new AbortController();
-const events = stream(g, input, { signal: controller.signal });
+const events = stream(g, { log: [] }, { signal: controller.signal });
 // ... later:
 controller.abort("user navigated away");
+
+for await (const ev of events) console.log(ev.type);   // ... run_end { status: "aborted" }
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
+using Ilmek;
+
+/// <summary>Work state — a log of what ran before the abort landed.</summary>
+sealed class WorkState
+{
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<WorkState>("work")
+    .Node("slow", async (state, ctx) =>
+    {
+        // Forward the token to your own long awaits (an LLM call, an HTTP request).
+        using var http = new HttpClient();
+        await http.GetAsync("https://example.com/slow", ctx.CancellationToken);
+        return Update.For<WorkState>().Append(s => s.Log, "done");
+    })
+    .Edge(Graph.Start, "slow")
+    .Edge("slow", Graph.End)
+    .Compile();
+
 var cts = new CancellationTokenSource();
-var events = IlmekRuntime.Stream(g, input, opts: null, ct: cts.Token);
+var events = IlmekRuntime.Stream(g, Update.For<WorkState>(), opts: null, ct: cts.Token);
 // ... later:
 cts.Cancel();   // "user navigated away"
+
+await foreach (var ev in events) Console.WriteLine(ev);   // ... RunEndEvent { Status = Aborted }
 ```
 
 The same token reaches node code as **`ctx.CancellationToken`**. An aborted run

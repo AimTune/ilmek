@@ -20,15 +20,34 @@ A graph is a set of **channels** (the state), **nodes** (the work), and **edges*
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-const g = graph("support")
-  .channel("messages", channel.append<string>())
-  .channel("cart", channel.lastWrite<Cart>())
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+type Cart = { items: string[] };
+
+/** Support state — messages, a cart, and the detected intent. */
+const SupportState = {
+  messages: channel.append<string>(),
+  cart: channel.lastWrite<Cart>({ items: [] }),
+  intent: channel.lastWrite<string>(""),
+} satisfies ChannelMap;
+
+type SupportState = StateOf<typeof SupportState>;
+
+// Stand-in node bodies — swap for your real agent + checkout code.
+const Agent = { run: async (state: SupportState) => ({ intent: "buy" }) };
+const Checkout = { run: async (state: SupportState) => ({ messages: ["order placed"] }) };
+
+const g = graph("support", SupportState)
   .node("agent", Agent.run)
   .node("checkout", Checkout.run)
   .edge(START, "agent")
   .edge("agent", "checkout", (state) => state.intent === "buy")   // conditional
   .edge("checkout", END)
   .compile();
+
+const { status } = await run(g, { messages: ["hi"] });
+console.log(status);   // "done"
 ```
 
 </TabItem>
@@ -37,11 +56,30 @@ const g = graph("support")
 ```csharp
 using Ilmek;
 
-/// <summary>Support state: an append-only message log and a last-write cart.</summary>
+/// <summary>A shopping cart — a last-write channel value.</summary>
+public sealed class Cart
+{
+    public List<string> Items { get; set; } = new();
+}
+
+/// <summary>Support state: an append-only message log, a last-write cart, and intent.</summary>
 public sealed class SupportState
 {
     [Append] public List<string> Messages { get; set; } = new();
     public Cart Cart { get; set; } = new();
+    public string Intent { get; set; } = "";
+}
+
+/// <summary>Stand-in node bodies — swap for your real agent + checkout code.</summary>
+static class Agent
+{
+    public static object Run(SupportState state, IContext ctx) =>
+        Update.For<SupportState>().Set(s => s.Intent, "buy");
+}
+static class Checkout
+{
+    public static object Run(SupportState state, IContext ctx) =>
+        Update.For<SupportState>().Append(s => s.Messages, "order placed");
 }
 
 var g = Graph.Create<SupportState>("support")
@@ -51,6 +89,10 @@ var g = Graph.Create<SupportState>("support")
     .Edge("agent", "checkout", when: (state, ctx) => state.Intent == "buy")   // conditional
     .Edge("checkout", Graph.End)
     .Compile();
+
+var input = Update.For<SupportState>().Append(s => s.Messages, "hi");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine(result.Status);   // Done
 ```
 
 </TabItem>
@@ -76,14 +118,53 @@ predicate; when it passes, the edge is taken:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.edge("agent", "checkout", (state) => state.intent === "buy")
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Routing state — an intent that decides the next hop. */
+const RouteState = {
+  intent: channel.lastWrite<string>(""),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type RouteState = StateOf<typeof RouteState>;
+
+const g = graph("route", RouteState)
+  .node("agent", async (state) => ({ intent: "buy" }))
+  .node("checkout", async (state) => ({ log: ["order placed"] }))
+  .edge(START, "agent")
+  .edge("agent", "checkout", (state) => state.intent === "buy")   // taken only when it passes
+  .edge("checkout", END)
+  .compile();
+
+const { status, state } = await run(g, { intent: "" });
+console.log(status, state.log);   // "done" [ "order placed" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Edge("agent", "checkout", when: (state, ctx) => state.Intent == "buy")
+using Ilmek;
+
+/// <summary>Routing state — an intent that decides the next hop.</summary>
+sealed class RouteState
+{
+    public string Intent { get; set; } = "";
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<RouteState>("route")
+    .Node("agent", (state, ctx) => Update.For<RouteState>().Set(s => s.Intent, "buy"))
+    .Node("checkout", (state, ctx) => Update.For<RouteState>().Append(s => s.Log, "order placed"))
+    .Edge(Graph.Start, "agent")
+    .Edge("agent", "checkout", when: (state, ctx) => state.Intent == "buy")   // taken only when it passes
+    .Edge("checkout", Graph.End)
+    .Compile();
+
+var input = Update.For<RouteState>().Set(s => s.Intent, "");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 
 </TabItem>
@@ -98,14 +179,57 @@ A **router** returns the next hop dynamically — a node name, a list of names
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.router("plan", (state) => state.needsTool ? "tools" : "respond")
+import { graph, channel, START, END, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** Plan state — a flag that routes to tools or a direct response. */
+const PlanState = {
+  needsTool: channel.lastWrite<boolean>(false),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+type PlanState = StateOf<typeof PlanState>;
+
+const g = graph("plan", PlanState)
+  .node("plan", async (state) => ({}))
+  .node("tools", async (state) => ({ log: ["ran tool"] }))
+  .node("respond", async (state) => ({ log: ["answered"] }))
+  .router("plan", (state) => (state.needsTool ? "tools" : "respond"))   // next hop, chosen dynamically
+  .edge(START, "plan")
+  .edge("tools", END)
+  .edge("respond", END)
+  .compile();
+
+const { status, state } = await run(g, { needsTool: true });
+console.log(status, state.log);   // "done" [ "ran tool" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Router("plan", (state, ctx) => new[] { state.NeedsTool ? "tools" : "respond" })
+using Ilmek;
+
+/// <summary>Plan state — a flag that routes to tools or a direct response.</summary>
+sealed class PlanState
+{
+    public bool NeedsTool { get; set; }
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<PlanState>("plan")
+    .Node("plan", (state, ctx) => null)
+    .Node("tools", (state, ctx) => Update.For<PlanState>().Append(s => s.Log, "ran tool"))
+    .Node("respond", (state, ctx) => Update.For<PlanState>().Append(s => s.Log, "answered"))
+    .Router("plan", (state, ctx) => new[] { state.NeedsTool ? "tools" : "respond" })   // next hop, chosen dynamically
+    .Edge(Graph.Start, "plan")
+    .Edge("tools", Graph.End)
+    .Edge("respond", Graph.End)
+    .Compile();
+
+var input = Update.For<PlanState>().Set(s => s.NeedsTool, true);
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 
 </TabItem>
@@ -121,10 +245,84 @@ seeing its own update, see [`command`](/control-flow/command).
 
 Because a graph compiles from a serializable spec, it round-trips:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
+import { fromSpec, toSpec, START, END } from "@ilmek/core";
+import type { GraphSpec, NodeRegistry } from "@ilmek/core";
+import assert from "node:assert/strict";
+
+// A stored spec — exactly the document a drag-and-drop builder would save.
+const spec: GraphSpec = {
+  name: "support",
+  channels: { messages: { reducer: "append" }, intent: { reducer: "last_write" } },
+  nodes: [
+    { id: "classify", type: "set_intent", config: { intent: "buy" } },
+    { id: "buy", type: "say", config: { text: "bought" } },
+  ],
+  edges: [
+    { from: START, to: "classify" },
+    { from: "classify", to: "buy", when: { channel: "intent", eq: "buy" } },
+    { from: "buy", to: END },
+  ],
+};
+
+/** Registry — maps each node `type` to a builder that returns the node body. */
+const registry: NodeRegistry = {
+  set_intent: (config) => () => ({ intent: config.intent }),
+  say: (config) => () => ({ messages: [config.text] }),
+};
+
 const g = fromSpec(spec, registry).compile();
-assert.deepEqual(toSpec(g), spec);   // a conformance test
+
+// Round-trip is a conformance test: the compiled graph serializes back to the same data.
+assert.deepEqual(toSpec(g), spec);
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+// A stored spec — exactly the document a drag-and-drop builder would save.
+var spec = new GraphSpec
+{
+    Name = "support",
+    Channels = new Dictionary<string, SpecChannel>
+    {
+        ["messages"] = new("append"),
+        ["intent"] = new("last_write"),
+    },
+    Nodes = new List<SpecNode>
+    {
+        new("classify", "set_intent", new Dictionary<string, object?> { ["intent"] = "buy" }),
+        new("buy", "say", new Dictionary<string, object?> { ["text"] = "bought" }),
+    },
+    Edges = new List<SpecEdge>
+    {
+        new(Graph.Start, "classify"),
+        new("classify", "buy", new SpecPredicate { Channel = "intent", Eq = "buy" }),
+        new("buy", Graph.End),
+    },
+};
+
+// Registry — maps each node type to a builder that returns the node body.
+var registry = new Dictionary<string, NodeBuilder>
+{
+    ["set_intent"] = cfg => (_, _) => new ValueTask<object?>(Update.Of("intent", cfg["intent"])),
+    ["say"] = cfg => (_, _) => new ValueTask<object?>(Update.Of("messages", cfg["text"])),
+};
+
+var g = Spec.FromSpec(spec, registry).Compile();
+
+// Round-trip is a conformance test: the compiled graph serializes back to the same data.
+var rebuilt = Spec.ToSpec(g);   // GraphSpec, value-equal to spec
+```
+
+</TabItem>
+</Tabs>
 
 This is the foundation for a drag-and-drop builder — a CRUD app over a JSON
 document. Nothing in the engine knows the builder exists. See

@@ -25,31 +25,110 @@ stories all stay free of double-effects.
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-// §14 send — map-reduce: one worker per item, each with its OWN input state
-.router("plan", (state) => state.items.map((item) => send("worker", { item })))
+import { graph, channel, START, END, send, command, run } from "@ilmek/core";
+import type { ChannelMap, StateOf, RetryPolicy } from "@ilmek/core";
 
-// §15 command — a node decides its own next hop, seeing the update it just wrote
-.node("agent", (state) => command({ update: { messages: [reply] }, goto: reply.done ? END : "tools" }))
+// A service that fails the first `failsFor` calls per key, then succeeds.
+const attempts = new Map<string, number>();
+function flakyUppercase(key: string, text: string, failsFor: number): string {
+  const n = (attempts.get(key) ?? 0) + 1;
+  attempts.set(key, n);
+  if (n <= failsFor) throw new Error(`503 on ${key} (attempt ${n})`);
+  return text.toUpperCase();
+}
 
-// §16 retry — and because completed steps are journaled, retries are SAFE
-.node("charge_then_call", fn, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
+/** Shout state — words in, shouted results out, a round counter. */
+const ShoutState = {
+  words: channel.lastWrite<string[]>([]),
+  shouted: channel.append<string>(),
+  rounds: channel.lastWrite<number>(0),
+} satisfies ChannelMap;
+
+type ShoutState = StateOf<typeof ShoutState>;
+
+/** A fan-out worker's input is its OWN send payload, not the channel state. */
+type Job = { word: string; failsFor: number };
+
+const retry: RetryPolicy = { maxAttempts: 4, backoffMs: 5, factor: 2 };
+
+const g = graph("shout", ShoutState)
+  .node("plan", (state) => ({}))   // nothing to write; the router below fans out
+  // §16 retry — the worker retries its flaky call safely; completed steps are journaled
+  .node("worker", (job: Job, ctx) => ({ shouted: [flakyUppercase(job.word, job.word, job.failsFor)] }), { retry })
+  // §15 command — a node decides its own next hop, seeing the update it just wrote
+  .node("gate", (state) =>
+    state.rounds === 0
+      ? command({ update: { rounds: 1, words: ["again"] }, goto: "plan" })   // loop once
+      : command({ goto: END }))                                              // then finish
+  .edge(START, "plan")
+  // §14 send — one worker task per word, each with its OWN input
+  .router("plan", (state) => state.words.map((word, i) => send("worker", { word, failsFor: i })))
+  .edge("worker", "gate")
+  .compile();
+
+const { status, state } = await run(g, { words: ["red", "green", "blue"] });
+console.log(status, state.shouted);   // "done" [ "RED", "GREEN", "BLUE", "AGAIN" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-// §14 send — map-reduce: one worker per item, each with its OWN input state
-.Router("plan", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new { item })))
+using Ilmek;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
-// §15 command — a node decides its own next hop, seeing the update it just wrote
-.Node("agent", (state, ctx) => Command.Create(
-    Update.For<State>().Append(s => s.Messages, reply),
-    reply.Done ? Graph.End : "tools"))
+/// <summary>Shout state — words in, shouted results out, a round counter.</summary>
+sealed class ShoutState
+{
+    public List<string> Words { get; set; } = new();
+    [Append] public List<string> Shouted { get; set; } = new();
+    public long Rounds { get; set; }
+}
 
-// §16 retry — and because completed steps are journaled, retries are SAFE
-.Node("charge_then_call", fn,
-    retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+/// <summary>A fan-out worker's input is its OWN type, not the channel state.</summary>
+sealed class Job
+{
+    public string Word { get; set; } = "";
+    public int FailsFor { get; set; }
+}
+
+/// <summary>A service that fails the first `failsFor` calls per key, then succeeds.</summary>
+static class Flaky
+{
+    static readonly Dictionary<string, int> Attempts = new();
+    public static string Uppercase(string key, string text, int failsFor)
+    {
+        var n = Attempts.TryGetValue(key, out var c) ? c + 1 : 1;
+        Attempts[key] = n;
+        if (n <= failsFor) throw new InvalidOperationException($"503 on {key} (attempt {n})");
+        return text.ToUpperInvariant();
+    }
+}
+
+var retry = new RetryPolicy { MaxAttempts = 4, Backoff = TimeSpan.FromMilliseconds(5), Factor = 2 };
+
+var g = Graph.Create<ShoutState>("shout")
+    .Node("plan", (state, ctx) => null)   // nothing to write; the router below fans out
+    // §16 retry — the worker retries its flaky call safely; completed steps are journaled
+    .Node<Job>("worker", (job, ctx) =>
+        Update.For<ShoutState>().Append(s => s.Shouted, Flaky.Uppercase(job.Word, job.Word, job.FailsFor)), retry: retry)
+    // §15 command — a node decides its own next hop, seeing the update it just wrote
+    .Node("gate", (state, ctx) => state.Rounds == 0
+        ? Command.Create(
+            Update.For<ShoutState>().Set(s => s.Rounds, 1L).Set(s => s.Words, new List<string> { "again" }),
+            "plan")                         // loop once
+        : Command.Goto_(Graph.End))         // then finish
+    .Edge(Graph.Start, "plan")
+    // §14 send — one worker task per word, each with its OWN input
+    .Router("plan", (state, ctx) => state.Words.Select((word, i) => (object)new Send("worker", new Job { Word = word, FailsFor = i })))
+    .Edge("worker", "gate")
+    .Compile();
+
+var input = Update.For<ShoutState>().Set(s => s.Words, new List<string> { "red", "green", "blue" });
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Shouted)}]");
 ```
 
 </TabItem>

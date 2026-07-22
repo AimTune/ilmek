@@ -20,18 +20,67 @@ next tool — returns a **command** instead:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-.node("agent", (state, ctx) =>
-  command({ update: { messages: [reply] }, goto: reply.done ? END : "tools" }))
+import { graph, channel, START, END, command, run } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+// Stand-in model — returns a reply and whether it is finished.
+const Model = { next: (messages: string[]) => ({ text: "final answer", done: true }) };
+
+/** Agent state — a growing transcript. */
+const AgentState = {
+  messages: channel.append<string>(),
+} satisfies ChannelMap;
+
+type AgentState = StateOf<typeof AgentState>;
+
+const g = graph("agent", AgentState)
+  .node("agent", (state, ctx) => {
+    const reply = Model.next(state.messages);
+    // goto is planned AFTER update reduces — the routing decision sees what we just wrote
+    return command({ update: { messages: [reply.text] }, goto: reply.done ? END : "tools" });
+  })
+  .node("tools", (state, ctx) => ({ messages: ["(ran a tool)"] }))
+  .edge(START, "agent")   // "agent" has no static outgoing edge — it always returns a goto
+  .edge("tools", "agent")   // after tools, loop back to the agent
+  .compile();
+
+const { status, state } = await run(g, { messages: ["hello"] });
+console.log(status, state.messages);   // "done" [ "hello", "final answer" ]
 ```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-.Node("agent", (state, ctx) =>
-    Command.Create(
-        Update.For<AgentState>().Append(s => s.Messages, reply),
-        reply.Done ? Graph.End : "tools"))
+using Ilmek;
+using System.Collections.Generic;
+
+/// <summary>Stand-in model — returns a reply and whether it is finished.</summary>
+static class Model { public static (string Text, bool Done) Next(IReadOnlyList<string> messages) => ("final answer", true); }
+
+/// <summary>Agent state — a growing transcript.</summary>
+sealed class AgentState
+{
+    [Append] public List<string> Messages { get; set; } = new();
+}
+
+var g = Graph.Create<AgentState>("agent")
+    .Node("agent", (state, ctx) =>
+    {
+        var reply = Model.Next(state.Messages);
+        // goto is planned AFTER update reduces — the routing decision sees what we just wrote
+        return Command.Create(
+            Update.For<AgentState>().Append(s => s.Messages, reply.Text),
+            reply.Done ? Graph.End : "tools");
+    })
+    .Node("tools", (state, ctx) => Update.For<AgentState>().Append(s => s.Messages, "(ran a tool)"))
+    .Edge(Graph.Start, "agent")   // "agent" has no static outgoing edge — it always returns a goto
+    .Edge("tools", "agent")   // after tools, loop back to the agent
+    .Compile();
+
+var input = Update.For<AgentState>().Append(s => s.Messages, "hello");
+var result = await IlmekRuntime.RunAsync(g, input);
+Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 
 </TabItem>

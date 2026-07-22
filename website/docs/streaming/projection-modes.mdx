@@ -28,6 +28,32 @@ The single typed [event stream](/streaming/overview) is canonical. A consumer ma
 <TabItem value="ts" label="TypeScript">
 
 ```ts
+import { graph, channel, START, END, streamModes } from "@ilmek/core";
+import type { ChannelMap, StateOf } from "@ilmek/core";
+
+/** A token chunk — the payload shape the messages projection yields. */
+type TokenChunk = { type: "token"; text: string };
+
+/** Answer state — the prompt in, the streamed reply appended out. */
+const AnswerState = {
+  prompt: channel.lastWrite<string>(""),
+  answer: channel.append<string>(),
+} satisfies ChannelMap;
+
+type AnswerState = StateOf<typeof AnswerState>;
+
+const g = graph("answer", AnswerState)
+  .node("responder", async (state, ctx) => {
+    // Stream the answer token by token; tokens ride the transient channel.
+    for (const tok of ["Hel", "lo", "!"]) ctx.emitToken(tok);
+    return { answer: ["Hello!"] };
+  })
+  .edge(START, "responder")
+  .edge("responder", END)
+  .compile();
+
+const prompt = "say hello";
+
 // token-by-token, plus the committed update, multiplexed through one pass
 for await (const part of streamModes(g, { prompt }, ["messages", "updates"])) {
   if (part.mode === "messages") process.stdout.write((part.data as TokenChunk).text);
@@ -38,9 +64,31 @@ for await (const part of streamModes(g, { prompt }, ["messages", "updates"])) {
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
+using Ilmek;
+
+/// <summary>Answer state — the prompt in, the streamed reply appended out.</summary>
+sealed class AnswerState
+{
+    public string Prompt { get; set; } = "";
+    [Append] public List<string> Answer { get; set; } = new();
+}
+
+var g = Graph.Create<AnswerState>("answer")
+    .Node("responder", (state, ctx) =>
+    {
+        // Stream the answer token by token; tokens ride the transient channel.
+        foreach (var tok in new[] { "Hel", "lo", "!" }) ctx.EmitToken(tok);
+        return Update.For<AnswerState>().Append(s => s.Answer, "Hello!");
+    })
+    .Edge(Graph.Start, "responder")
+    .Edge("responder", Graph.End)
+    .Compile();
+
+var input = Update.For<AnswerState>().Set(s => s.Prompt, "say hello");
+
 // token-by-token, plus the committed update, multiplexed through one pass
 await foreach (var part in Streaming.Projected(
-    IlmekRuntime.Stream(g, new { prompt }),
+    IlmekRuntime.Stream(g, input),
     new[] { StreamMode.Messages, StreamMode.Updates }))
 {
     if (part.Mode == StreamMode.Messages) Console.Write(part.Data);
