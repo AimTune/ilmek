@@ -37,8 +37,8 @@ line**: resuming from a non-latest checkpoint forks a branch (time travel /
 what-if). Implementations must not assume a single chain.
 
 :::note ilmek checkpoints are ilmek's own
-They are **not** botiva state — botiva keeps its transcript and `conv:*` keyspace
-independently.
+They hold engine state — channels, journals, and pending pauses — not a host's
+transcript or conversation store, which a host keeps independently.
 :::
 
 ## Available backends

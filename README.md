@@ -4,8 +4,8 @@ An agent graph runtime: state, nodes, edges, checkpointed memory, and **durable*
 human-in-the-loop.
 
 Ilmek is not a server. It knows nothing about transports, chat protocols or HTTP
-— [botiva](https://github.com/AimTune/botiva) adapts it behind its `Runtime`
-port, and it works just as well for batch jobs and background workflows.
+— a host adapts it behind a `Runtime` port, and it works just as well for batch
+jobs and background workflows.
 
 > **İlmek** (Turkish, *il-MEK*) is a stitch — the single loop pulled through the
 > last one. Each stitch holds the one before it, which is why work survives being
@@ -245,7 +245,7 @@ Next, roughly in order:
 |---|---|
 | ⬜ | `Ilmek.Checkpointer.Postgres` (Npgsql) — .NET parity for multi-process threads |
 | ⬜ | a Redis checkpointer (sibling under `ts/packages/checkpointers/`) |
-| ⬜ | botiva `Runtime` adapter — ilmek event stream → `AgentEvent` |
+| ⬜ | a host `Runtime` adapter — ilmek event stream → the host's event type |
 | ⬜ | subgraphs + `ns` streaming (the envelope already carries the namespace) |
 | ⬜ | cross-thread `Store` for long-term memory (distinct from the per-thread checkpointer) |
 
