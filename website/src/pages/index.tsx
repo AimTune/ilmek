@@ -4,6 +4,7 @@ import Link from "@docusaurus/Link";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import Layout from "@theme/Layout";
 import Heading from "@theme/Heading";
+import CodeBlock from "@theme/CodeBlock";
 
 import styles from "./index.module.css";
 
@@ -68,8 +69,9 @@ function HomepageHeader() {
             The one idea →
           </Link>
         </div>
-        <pre className={styles.codeBlock}>
-          {`import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
+        <div className={styles.codeBlock}>
+          <CodeBlock language="tsx">
+            {`import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
 
 const g = graph("checkout")
   .node("checkout", async (state, ctx) => {
@@ -80,7 +82,8 @@ const g = graph("checkout")
   })
   .edge(START, "checkout").edge("checkout", END)
   .compile();`}
-        </pre>
+          </CodeBlock>
+        </div>
       </div>
     </header>
   );

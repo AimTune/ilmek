@@ -89,18 +89,16 @@
   display: block;
 }
 
+/* Wrapper around the syntax-highlighted <CodeBlock>; the block brings its own
+   background, padding, and Prism colors. */
 .codeBlock {
-  background: #0f172a;
-  color: #e2e8f0;
-  padding: 1.25rem 1.5rem;
-  border-radius: 12px;
   text-align: left;
-  font-family: var(--ifm-font-family-monospace);
-  font-size: 0.9rem;
-  line-height: 1.6;
   margin: 2rem auto 0;
   max-width: 720px;
-  overflow-x: auto;
+}
+
+.codeBlock :global(.theme-code-block) {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
 }
 
 @media (max-width: 768px) {
