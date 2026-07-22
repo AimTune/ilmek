@@ -1,0 +1,5 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- ilmek — a stitch: one loop pulled through the last -->
+  <path d="M4 20c0-5 4-9 8-9s8 4 8 9" stroke="#4338ca" stroke-width="3" stroke-linecap="round"/>
+  <path d="M12 12c0 5 4 9 8 9s8-4 8-9" stroke="#818cf8" stroke-width="3" stroke-linecap="round"/>
+</svg>

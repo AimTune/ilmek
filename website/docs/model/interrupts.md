@@ -1,0 +1,87 @@
+---
+id: interrupts
+title: Interrupts & resume (HITL)
+sidebar_label: Interrupts & resume
+sidebar_position: 5
+---
+
+# Interrupts & resume
+
+*Normative: [MODEL.md §6](/reference/spec).*
+
+> **An interrupt is a step whose value comes from a human instead of a function.**
+
+That single idea gives the whole human-in-the-loop feature set for free.
+`ctx.interrupt(payload)`:
+
+1. Look the key up in the journal. **Hit** → return the recorded answer.
+2. **Miss** → journal `{ key, pending, payload }`, then **halt the task**.
+
+Halting a task halts its superstep: the engine checkpoints (journals included),
+emits an `interrupt` event carrying the payload, and ends the run. The thread now
+has a **pending interrupt**. The next run for that thread must supply an answer;
+the engine writes it into the journal entry and replays the task.
+
+```ts
+const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
+
+const paused = await run(g, { messages: ["buy"] }, opts);  // status: "interrupted"
+const done = await resume(g, "yes", opts);                 // status: "done"
+```
+
+## Everything falls out of the journal
+
+None of the following is special-cased — each is a direct consequence of the
+[journal](/model/journal):
+
+- **Multiple pauses per node** — each `interrupt` has its own key; each resolves
+  once; replay fast-forwards through the already-answered ones. No index-matching.
+- **Pauses inside loops** — work, given [stable keys](/model/journal#keys).
+- **Concurrent interrupts** — two tasks in one superstep may both halt pending;
+  the run emits both and resumes both when both are answered.
+- **Effects before a pause never re-run.**
+- An interrupt is a **first-class control signal**, never an exception smuggled
+  through an error channel. Consumers never inspect error strings to discover a
+  pause.
+
+## `id` vs `key` {#id-vs-key}
+
+*This is the one wrinkle worth knowing up front.*
+
+A journal key is unique **within its task** and nowhere else. Two nodes that each
+call a bare `interrupt` in the same superstep therefore *both* journal
+`interrupt#0` — each task counts occurrences on its own. So a pending interrupt
+carries two handles:
+
+| Field | Scope | Used for |
+|---|---|---|
+| `key` | the task (`"interrupt#0"`) | addressing the journal entry |
+| `id` | the thread (`"<node>:<key>"`) | addressing the pause from outside |
+
+**Resume answers must be keyed by `id`.** Keying by `key` looks fine until the
+first concurrent pause, then silently drops an answer and hands both nodes the
+same one — a data-corruption bug with no error.
+
+## Two resume forms
+
+Which form applies is decided by the **number of pending interrupts**, never by
+the answer's own type:
+
+- **bare answer** — legal only when exactly one interrupt is pending. Because the
+  *count* decides, an object answer (`{ approved: true }`) can never be mistaken
+  for a key map.
+- **keyed answers** — a map of `id => answer`. Works for any count, so a UI that
+  renders every open pause needs no special case for "exactly one".
+
+Auto-suffixing makes the bare form safe even for several pauses in one node:
+
+```ts
+const ok   = await ctx.interrupt({ question: "Delete production?" });   // interrupt#0
+const sure = await ctx.interrupt({ question: "Really sure?" });         // interrupt#1
+```
+
+Run the interactive demo to feel it:
+
+```bash
+cd ts && node examples/checkout.ts     # 💳 create_order → ⏸ paused → 💰 charge
+```

@@ -15,6 +15,10 @@ port, and it works just as well for batch jobs and background workflows.
 **[MODEL.md](MODEL.md) is the normative spec.** The implementation reproduces it
 exactly; this README is the tour.
 
+📖 **Full documentation: [ilmek.aimtune.dev](https://ilmek.aimtune.dev)** — guides,
+the execution model, control flow, streaming, and checkpointers. Source in
+[`website/`](website/).
+
 ## Repository layout
 
 Language-first: each language is a self-contained tree with its own tooling, and

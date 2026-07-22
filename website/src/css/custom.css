@@ -1,0 +1,43 @@
+/**
+ * Global Infima overrides for ilmek docs.
+ * Brand color is #4338ca (indigo) — a stitch pulled taut.
+ */
+
+:root {
+  --ifm-color-primary: #4338ca;
+  --ifm-color-primary-dark: #3c33b7;
+  --ifm-color-primary-darker: #3930ac;
+  --ifm-color-primary-darkest: #2f288e;
+  --ifm-color-primary-light: #5449d4;
+  --ifm-color-primary-lighter: #6055d7;
+  --ifm-color-primary-lightest: #8078e0;
+  --ifm-code-font-size: 92%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+
+  --ilmek-hero-gradient-start: #1e1b4b;
+  --ilmek-hero-gradient-end: #4338ca;
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #a5b4fc;
+  --ifm-color-primary-dark: #8494fb;
+  --ifm-color-primary-darker: #7484fa;
+  --ifm-color-primary-darkest: #4457f7;
+  --ifm-color-primary-light: #c6d0fd;
+  --ifm-color-primary-lighter: #d6ddfe;
+  --ifm-color-primary-lightest: #ffffff;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+
+  --ilmek-hero-gradient-start: #1e1b4b;
+  --ilmek-hero-gradient-end: #312e81;
+}
+
+/* Tighter table styling for capability matrices */
+table {
+  display: table;
+  width: 100%;
+}
+
+article header h1 {
+  font-size: 2.4rem;
+}

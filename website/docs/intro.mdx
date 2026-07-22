@@ -1,0 +1,59 @@
+---
+id: intro
+title: What is ilmek?
+sidebar_label: Introduction
+sidebar_position: 1
+---
+
+# What is ilmek?
+
+**ilmek** is an agent graph runtime: state, nodes, edges, checkpointed memory,
+and **durable** human-in-the-loop.
+
+It is not a server. It knows nothing about transports, chat protocols, or HTTP —
+[botiva](https://github.com/AimTune/botiva) adapts it behind its `Runtime` port,
+and it works just as well for batch jobs and background workflows.
+
+:::info The name
+**İlmek** (Turkish, *il-MEK*) is a stitch — the single loop pulled through the
+last one. Each stitch holds the one before it, which is why work survives being
+put down and picked up again. A journaled step is an ilmek: made once, and the
+run resumes on top of it.
+:::
+
+## The one idea
+
+Every graph engine that supports human-in-the-loop resumes a paused node by
+**re-executing it from the top**. So everything above the pause runs again — a
+second order gets created, a card gets charged twice.
+
+ilmek makes that the engine's problem. Wrap each side effect in a `step`, and the
+journal replays its recorded result instead of calling it again. An interrupt is
+just a step whose value comes from a human instead of a function — same journal,
+same replay rules. The whole HITL feature set falls out of that single idea
+rather than being special-cased.
+
+→ Read [Concepts](/concepts) for the full argument, or jump to
+[Getting started](/getting-started).
+
+## Two implementations, one spec
+
+[**MODEL.md**](/reference/spec) is the normative, language-neutral spec. Two
+ports reproduce it exactly and stay green against the same
+[conformance](/reference/conformance) list — the demos even print identical
+output, which is what having a spec is for.
+
+| | check | packages |
+|---|---|---|
+| **TypeScript** (reference) | `cd ts && pnpm check` | `@ilmek/core`, `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres` |
+| **.NET** | `cd dotnet && dotnet test Ilmek.sln` | `Ilmek.Core`, `Ilmek.Checkpointer.Sqlite` |
+
+## Where to go next
+
+- [**Getting started**](/getting-started) — install `@ilmek/core` and run your
+  first pausing graph.
+- [**Concepts**](/concepts) — the journal, steps, and why replay is invisible.
+- [**Execution model**](/model/state-and-channels) — state, graphs, supersteps,
+  the journal, interrupts.
+- [**Checkpointers**](/checkpointers/overview) — durable threads in SQLite or
+  Postgres.

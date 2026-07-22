@@ -1,0 +1,6 @@
+# Standalone Docusaurus project (not part of the ts/ workspace). This file exists
+# only to carry pnpm settings that moved out of package.json / .npmrc in pnpm 11.
+verifyDepsBeforeRun: false
+onlyBuiltDependencies:
+  - "@swc/core"
+  - core-js

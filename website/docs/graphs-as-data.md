@@ -1,0 +1,68 @@
+---
+id: graphs-as-data
+title: Graphs as data
+sidebar_label: Graphs as data
+sidebar_position: 6
+---
+
+# Graphs as data
+
+*Normative: [MODEL.md §9](/reference/spec).*
+
+A graph is always constructible from a serializable **spec** — normative from day
+one, because retrofitting it is expensive. This is the foundation for a
+drag-and-drop builder: a CRUD app over a JSON document plus a registry browser.
+Nothing in the engine knows the builder exists.
+
+```ts
+const spec = {
+  name: "support",
+  channels: { messages: { reducer: "append" } },
+  nodes: [{ id: "agent", type: "llm", config: { model: "claude-opus-4-8" } }],
+  edges: [
+    { from: "__start__", to: "agent" },
+    { from: "agent", to: "__end__" },
+  ],
+};
+
+const g = fromSpec(spec, registry).compile();
+assert.deepEqual(toSpec(g), spec);   // round-trip is a conformance test
+```
+
+## The node registry
+
+`type` resolves against a **node registry**: `type => (config) => nodeFn`.
+Code-defined graphs register anonymous types; DB-defined graphs reference
+registered ones. **The engine cannot tell the difference** — the same executor
+runs both.
+
+## Two rules keep stored graphs safe
+
+1. **A stored spec never carries executable text.** A conditional `when` is a
+   *declarative predicate* (`{ channel: "intent", eq: "buy" }`), not code — there
+   is no eval path. Code-defined graphs may pass a real function; the serializer
+   refuses to emit one.
+2. **`toSpec()` refuses to serialize what a document cannot honestly hold** — a
+   code router, an anonymous node type, a hand-written guard. If it round-trips, it
+   is safe to store; if it cannot, you find out at serialize time, not at load
+   time.
+
+```ts
+const spec = {
+  name: "support-agent",
+  channels: { messages: { reducer: "append" }, cart: { reducer: "last_write" } },
+  nodes: [
+    { id: "agent", type: "llm", config: { model: "claude-opus-4-8", tools: ["search"] } },
+    { id: "checkout", type: "http", config: { url: "…" } },
+  ],
+  edges: [
+    { from: "__start__", to: "agent" },
+    { from: "agent", to: "checkout", when: { channel: "intent", eq: "buy" } },
+    { from: "checkout", to: "__end__" },
+  ],
+};
+```
+
+Because the round-trip `compile(spec) → toSpec()` is a conformance test, a builder
+that reads and writes this document can trust the engine to preserve exactly what
+it stored.

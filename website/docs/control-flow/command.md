@@ -1,0 +1,40 @@
+---
+id: command
+title: Node-directed routing — command
+sidebar_label: command (routing)
+sidebar_position: 2
+---
+
+# `command` — node-directed routing
+
+*Normative: [MODEL.md §15](/reference/spec).*
+
+Routing on a [graph](/model/graph) is decided at plan time from state, *before* a
+node runs. A node that only **discovers** where to go next — an agent choosing its
+next tool — returns a **command** instead:
+
+```ts
+.node("agent", (state, ctx) =>
+  command({ update: { messages: [reply] }, goto: reply.done ? END : "tools" }))
+```
+
+## Semantics
+
+- `update` is reduced exactly like a normal node return — same channels, same
+  task-order rules.
+- `goto` (a node name, a list, `END`, or [`send(...)`](/control-flow/send) values)
+  **replaces** the node's static outgoing edges for this superstep. A node with no
+  static edges is legal when it always returns a `goto`.
+- A bare update and `command({ update })` are equivalent; `command` exists only to
+  carry `goto` alongside.
+- `goto` is planned **after** `update` reduces, so the routing decision sees the
+  state the node just wrote.
+- A `command` whose `goto` is omitted falls back to static edges — so you can add a
+  `goto` to one branch of a node without wiring every path through `command`.
+
+## Purity, preserved
+
+`command` keeps the [purity rule](/model/graph#routers) intact: routers and guards
+still must not have side effects, because they still run at plan time. `command` is
+how a node that *has* run its journaled side effects then directs the flow — the
+one place routing and effects legitimately meet.

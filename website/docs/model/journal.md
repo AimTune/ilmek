@@ -1,0 +1,96 @@
+---
+id: journal
+title: The journal — durable steps
+sidebar_label: The journal
+sidebar_position: 4
+---
+
+# The journal
+
+*Normative: [MODEL.md §5](/reference/spec).* This is the core of ilmek and the
+reason it is not a LangGraph clone.
+
+## The problem
+
+In a pure-replay engine, resuming an interrupted node re-executes it from the top.
+Everything before the pause runs **again** — so a side effect before the pause
+happens twice. LangGraph documents this as a rule for the author to obey. ilmek
+does not push it onto the author. The engine remembers.
+
+## The contract
+
+> A node body must be deterministic **modulo steps**. Every side effect and every
+> nondeterministic read — clock, RNG, uuid, network, DB, LLM call — must be
+> wrapped in a step. Given the same state and the same journal, a node must
+> request the same steps.
+
+Obey it and replay is invisible. Violate it and [strict mode](#strict-mode) tells
+you where.
+
+## Semantics
+
+`ctx.step(key, fn)` does exactly this:
+
+1. Look `key` up in the task's journal.
+2. **Hit** → return the recorded value. `fn` is **not called**.
+3. **Miss** → call `fn`, append `{ key, value }` to the journal, **persist the
+   journal**, return the value.
+
+So on the pass after an interrupt, the node re-runs from the top, but every step
+it already completed returns instantly from the journal:
+
+```ts
+async node(state, ctx) {
+  // 1st pass: calls Orders.create, journals the result.
+  // resume pass: returns the journaled order. Orders.create is NOT called.
+  const order = await ctx.step("create_order", () => Orders.create(state.cart));
+
+  // 1st pass: no answer in the journal → the task halts here.
+  // resume pass: returns the user's answer from the journal.
+  const answer = await ctx.interrupt<string>({ question: `Charge ${order.total}?` });
+
+  // Only ever reached on the resume pass.
+  await ctx.step("charge", () => Payments.charge(order, answer));
+
+  return { messages: ["done"] };
+}
+```
+
+`Orders.create` runs exactly once across both passes. That is what *resume from
+the line* means: not a restored call stack, but **an effect that cannot happen
+twice**.
+
+## Keys
+
+Keys are **explicit strings**, looked up by name — not by call order. A node may
+branch and skip steps; lookup by name stays correct.
+
+Colliding keys within one task are auto-suffixed by occurrence: `"charge"` called
+three times journals `charge#0`, `charge#1`, `charge#2`. This restores
+order-dependence for that key, so **loops should carry a stable key** derived from
+the data:
+
+```ts
+for (const item of state.cart) {
+  await ctx.step(`charge:${item.id}`, () => Payments.charge(item));   // stable
+}
+```
+
+Journaled values **must survive a serializer round-trip**: what a step returns on
+a fresh call and what it returns from the journal must be equal. A step returning
+a PID, socket, or stream handle violates this — return an id and re-resolve it.
+
+## Strict mode
+
+When enabled (**default in dev/test**), the engine records the observed key
+sequence and compares it against the journal on the next replay. A journaled key
+that the replay never requests — or a divergent order for an auto-suffixed key —
+raises `NondeterminismError` naming the key. This turns a silent double-charge
+into a loud test failure.
+
+## Lifetime
+
+A journal is scoped to a **task** — `(thread, checkpoint, node)` — and is
+discarded when that task completes and its update is reduced. It is *replay
+memory*, not history. [Checkpoints](/checkpointers/overview) are the durable
+record.

@@ -1,0 +1,49 @@
+---
+id: send
+title: Dynamic fan-out — send
+sidebar_label: send (fan-out)
+sidebar_position: 1
+---
+
+# `send` — dynamic fan-out
+
+*Normative: [MODEL.md §14](/reference/spec).*
+
+Static edges and routers pick *which nodes* run next; every task then reads the
+same checkpoint state. `send` adds the missing axis: run **one node many times in
+parallel, each with its own input**. It is the map-reduce primitive.
+
+A router may return `send(node, input)` values, alone or mixed with plain node
+names:
+
+```ts
+.router("fanout", (state) => state.items.map((item) => send("worker", { item })))
+```
+
+## Semantics
+
+- Each `send(node, input)` schedules **one task** for `node` in the next
+  superstep. N sends to the same node are N distinct parallel tasks.
+- That task's `ctx.state` **is the send `input`**, not the channel state — the
+  worker sees exactly what the mapper handed it. It still writes updates that
+  reduce into the graph's channels, so workers fan results back in through an
+  [`append` channel](/model/state-and-channels#reducers).
+- `input` **must be JSON-serializable**: it is written into the checkpoint's
+  `next`, so a resumed run re-dispatches the same fan-out.
+- **Task identity disambiguates sends**: the Nth send to a node has a distinct
+  task id (and its own journal), so a pause or a step inside one fan-out branch
+  never collides with another.
+- **Fan-in is just a superstep boundary**: a downstream node with an edge from
+  `worker` runs once, after all workers reduce, seeing the collected channel.
+
+## Fanning out after a node runs
+
+When the fan-out set is only known *after* a node's work, return the sends in a
+[`command`](/control-flow/command) goto:
+
+```ts
+.node("plan", (state, ctx) => {
+  const items = /* ...computed inside the node... */;
+  return command({ goto: items.map((i) => send("worker", i)) });
+})
+```

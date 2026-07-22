@@ -1,0 +1,57 @@
+---
+id: overview
+title: Streaming
+sidebar_label: Overview
+sidebar_position: 0
+---
+
+# Streaming
+
+*Normative: [MODEL.md §10](/reference/spec).*
+
+A run is **one canonical stream** of typed events. Every event carries a common
+envelope plus its type-specific fields:
+
+```jsonc
+{ "run_id": "…", "thread_id": "…", "seq": 7, "ns": [], "type": "node_end", … }
+```
+
+- **`seq`** — monotonic within a run, 1-based, no gaps. A consumer that drops its
+  connection reconnects and skips everything up to its last-seen `seq`, so a
+  streamed run survives a broken pipe **without replaying from the top**.
+- **`ns`** — the namespace path to the (sub)graph that emitted the event; `[]` at
+  the root. Always `[]` today, reserved so subgraphs can tag their events without a
+  breaking envelope change. Filter by graph off `ns`, not the run id.
+
+## Event types
+
+Every implementation emits these, in this order:
+
+| Event | When |
+|---|---|
+| `run_start` | run begins |
+| `step_start { step, tasks }` | superstep begins |
+| `node_start { node, task_id }` | task begins |
+| `custom { payload }` | `ctx.emit(...)` — delivered live, mid-superstep |
+| `node_end { node, update }` | task returns |
+| `node_error { node, error }` | task raises |
+| `state { channels }` | after REDUCE |
+| `checkpoint { id }` | after CHECKPOINT |
+| `interrupt { pending }` | run halts on a pause |
+| `run_end { status }` | `done` · `interrupted` · `error` · `aborted` |
+
+`interrupt` is a **distinct event type**. Consumers never parse error text or poll
+graph state to discover a pause — the defect this design exists to remove.
+
+## Two consumption styles
+
+```ts
+// full event stream
+for await (const ev of stream(g, input)) console.log(ev);
+
+// projected into LangGraph-style mode views — see the next page
+for await (const part of streamModes(g, input, ["messages", "updates"])) { /* … */ }
+```
+
+→ [Projection modes](/streaming/projection-modes) ·
+[Tokens & cancellation](/streaming/tokens-and-cancellation)
