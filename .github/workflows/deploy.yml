@@ -33,7 +33,9 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          # Match the pnpm that generated website/pnpm-lock.yaml and reads the
+          # settings in website/pnpm-workspace.yaml (verifyDepsBeforeRun etc.).
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
