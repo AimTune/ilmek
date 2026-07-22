@@ -5,6 +5,9 @@ sidebar_label: Interrupts & resume
 sidebar_position: 5
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Interrupts & resume
 
 *Normative: [MODEL.md §6](/reference/spec).*
@@ -22,12 +25,29 @@ emits an `interrupt` event carrying the payload, and ends the run. The thread no
 has a **pending interrupt**. The next run for that thread must supply an answer;
 the engine writes it into the journal entry and replays the task.
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
 
 const paused = await run(g, { messages: ["buy"] }, opts);  // status: "interrupted"
 const done = await resume(g, "yes", opts);                 // status: "done"
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
+
+var buy = Update.For<SupportState>().Append(s => s.Messages, "buy");
+var paused = await IlmekRuntime.RunAsync(g, buy, opts);        // Status: Interrupted
+var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);   // Status: Done
+```
+
+</TabItem>
+</Tabs>
 
 ## Everything falls out of the journal
 
@@ -44,7 +64,7 @@ None of the following is special-cased — each is a direct consequence of the
   through an error channel. Consumers never inspect error strings to discover a
   pause.
 
-## `id` vs `key` {#id-vs-key}
+## `id` vs `key`
 
 *This is the one wrinkle worth knowing up front.*
 
@@ -75,13 +95,40 @@ the answer's own type:
 
 Auto-suffixing makes the bare form safe even for several pauses in one node:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 const ok   = await ctx.interrupt({ question: "Delete production?" });   // interrupt#0
 const sure = await ctx.interrupt({ question: "Really sure?" });         // interrupt#1
 ```
 
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+var ok   = await ctx.InterruptAsync<string>(new { question = "Delete production?" });   // interrupt#0
+var sure = await ctx.InterruptAsync<string>(new { question = "Really sure?" });         // interrupt#1
+```
+
+</TabItem>
+</Tabs>
+
 Run the interactive demo to feel it:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
 
 ```bash
 cd ts && node examples/checkout.ts     # 💳 create_order → ⏸ paused → 💰 charge
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```bash
+cd dotnet && dotnet run --project examples/Ilmek.Examples     # 💳 create_order → ⏸ paused → 💰 charge
+```
+
+</TabItem>
+</Tabs>

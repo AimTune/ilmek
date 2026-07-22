@@ -5,6 +5,9 @@ sidebar_label: Overview
 sidebar_position: 0
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Streaming
 
 *Normative: [MODEL.md §10](/reference/spec).*
@@ -45,6 +48,9 @@ graph state to discover a pause — the defect this design exists to remove.
 
 ## Two consumption styles
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 // full event stream
 for await (const ev of stream(g, input)) console.log(ev);
@@ -52,6 +58,22 @@ for await (const ev of stream(g, input)) console.log(ev);
 // projected into LangGraph-style mode views — see the next page
 for await (const part of streamModes(g, input, ["messages", "updates"])) { /* … */ }
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+// full event stream
+await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
+
+// projected into LangGraph-style mode views — see the next page
+await foreach (var part in Streaming.Projected(
+    IlmekRuntime.Stream(g, input),
+    new[] { StreamMode.Messages, StreamMode.Updates })) { /* … */ }
+```
+
+</TabItem>
+</Tabs>
 
 → [Projection modes](/streaming/projection-modes) ·
 [Tokens & cancellation](/streaming/tokens-and-cancellation)

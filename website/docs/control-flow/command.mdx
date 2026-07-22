@@ -5,6 +5,9 @@ sidebar_label: command (routing)
 sidebar_position: 2
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # `command` — node-directed routing
 
 *Normative: [MODEL.md §15](/reference/spec).*
@@ -13,10 +16,26 @@ Routing on a [graph](/model/graph) is decided at plan time from state, *before* 
 node runs. A node that only **discovers** where to go next — an agent choosing its
 next tool — returns a **command** instead:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .node("agent", (state, ctx) =>
   command({ update: { messages: [reply] }, goto: reply.done ? END : "tools" }))
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Node("agent", (state, ctx) =>
+    Command.Create(
+        Update.For<AgentState>().Append(s => s.Messages, reply),
+        reply.Done ? Graph.End : "tools"))
+```
+
+</TabItem>
+</Tabs>
 
 ## Semantics
 

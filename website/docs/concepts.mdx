@@ -5,6 +5,9 @@ sidebar_label: Concepts
 sidebar_position: 3
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Concepts
 
 ## The problem
@@ -12,13 +15,33 @@ sidebar_position: 3
 Every graph engine that supports human-in-the-loop resumes a paused node by
 **re-executing it from the top**. So everything above the pause runs again:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
+/** The naive shape: the effect runs above the pause, so it re-runs on resume. */
 .node("checkout", async (state) => {
   const order = Orders.create(state.cart);   // ← runs AGAIN on resume. Second order.
   const ok = await interrupt({ question: "Charge?" });
   Payments.charge(order, ok);
 })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+/// <summary>The naive shape: the effect runs above the pause, so it re-runs on resume.</summary>
+.Node("checkout", async (state, ctx) =>
+{
+    var order = Orders.Create(state.Cart);   // ← runs AGAIN on resume. Second order.
+    var ok = await ctx.InterruptAsync<string>(new { question = "Charge?" });
+    Payments.Charge(order, ok);
+})
+```
+
+</TabItem>
+</Tabs>
 
 LangGraph documents this as a rule for *you* to obey — *a side effect belongs
 after the pause gating it; everything before it re-runs.* That works until a node
@@ -30,7 +53,11 @@ before the question can be asked.
 ilmek makes it the engine's problem. Wrap each effect in a `step`, and the
 journal replays its recorded result instead of calling it again:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
+/** The fix: each effect is a journaled step, so replay never re-runs it. */
 .node("checkout", async (state, ctx) => {
   // Called once, ever. On the resume pass this returns the journaled order.
   const order = await ctx.step("create_order", () => Orders.create(state.cart));
@@ -42,6 +69,27 @@ journal replays its recorded result instead of calling it again:
   return { log: ["done"] };
 })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+/// <summary>The fix: each effect is a journaled step, so replay never re-runs it.</summary>
+.Node("checkout", async (state, ctx) =>
+{
+    // Called once, ever. On the resume pass this returns the journaled order.
+    var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
+
+    // First pass: the task halts here. Resume pass: returns the human's answer.
+    var ok = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+
+    await ctx.StepAsync("charge", () => Payments.Charge(order, ok));
+    return Update.For<CheckoutState>().Append(s => s.Log, "done");
+})
+```
+
+</TabItem>
+</Tabs>
 
 That is what *resume from the line* means here: not a restored call stack —
 **an effect that cannot happen twice**.
@@ -84,9 +132,22 @@ charges a card in one `ctx.step` and then hits a flaky API in the next retries t
 API call *without charging twice* — the completed step replays from the journal
 instead of re-running:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .node("charge_then_call", fn, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Node("charge_then_call", fn, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+```
+
+</TabItem>
+</Tabs>
 
 One idea — a journaled step — turned toward a human gives you interrupts; turned
 toward failure gives you safe retries. → [Retry & resilience](/control-flow/retry).

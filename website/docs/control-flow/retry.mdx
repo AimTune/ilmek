@@ -5,17 +5,34 @@ sidebar_label: retry
 sidebar_position: 3
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # `retry` — safe by default
 
 *Normative: [MODEL.md §16](/reference/spec).*
 
 A node may declare a retry policy:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .node("call_api", fn, {
   retry: { maxAttempts: 3, backoffMs: 200, factor: 2, retryOn: isTransient },
 })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Node("call_api", fn,
+    retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+```
+
+</TabItem>
+</Tabs>
 
 When the node throws a non-interrupt error, the engine re-invokes it up to
 `maxAttempts` times — waiting `backoffMs * factor^(n-1)` between attempts,
@@ -29,12 +46,29 @@ returns from the [journal](/model/journal) instead of re-executing. So a node th
 charged a card in one step and then hit a flaky API in the next retries the API
 call **without charging twice**:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .node("charge_then_call", async (state, ctx) => {
   await ctx.step("charge", () => Payments.charge(state.order));   // journaled — runs once
   return ctx.step("notify", () => Api.callFlaky(state.order));    // retried on failure
 }, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Node("charge_then_call", async (state, ctx) =>
+{
+    await ctx.StepAsync("charge", () => Payments.Charge(state.Order));   // journaled — runs once
+    return await ctx.StepAsync("notify", () => Api.CallFlaky(state.Order));  // retried on failure
+}, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+```
+
+</TabItem>
+</Tabs>
 
 This is the same guarantee [interrupts](/model/interrupts) rely on, turned toward
 failure instead of a human — and it is why retries here are safe by default where

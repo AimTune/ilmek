@@ -5,6 +5,9 @@ sidebar_label: Tokens & cancellation
 sidebar_position: 2
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Tokens & cancellation
 
 ## Tokens
@@ -14,9 +17,22 @@ sidebar_position: 2
 ilmek is LLM-agnostic — the core never calls a model. But "stream the answer as
 it is generated" is universal, so a **token** has a fixed shape:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 { type: "token", text, meta? }
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+new { type = "token", text, meta }   // the shape ctx.EmitToken("text", meta) produces
+```
+
+</TabItem>
+</Tabs>
 
 A node streams one with `ctx.emitToken(text, meta?)` — sugar for
 `ctx.emit(token(...))`. Tokens ride the same transient channel as `emit` and are
@@ -43,11 +59,30 @@ boundary**: an aborted run stops there and ends with
 - The engine **never force-kills** a running task; cancellation is only as
   responsive as the node's own signal handling.
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 const controller = new AbortController();
 const events = stream(g, input, { signal: controller.signal });
 // ... later:
 controller.abort("user navigated away");
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+var cts = new CancellationTokenSource();
+var events = IlmekRuntime.Stream(g, input, opts: null, ct: cts.Token);
+// ... later:
+cts.Cancel();   // "user navigated away"
+```
+
+The same token reaches node code as **`ctx.CancellationToken`**. An aborted run
+ends with `RunStatus.Aborted`.
+
+</TabItem>
+</Tabs>
 
 Run `pnpm demo:stream` to see tokens stream and a mid-stream cancel land cleanly.

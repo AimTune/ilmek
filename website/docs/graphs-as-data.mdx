@@ -5,6 +5,9 @@ sidebar_label: Graphs as data
 sidebar_position: 6
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Graphs as data
 
 *Normative: [MODEL.md §9](/reference/spec).*
@@ -14,20 +17,35 @@ one, because retrofitting it is expensive. This is the foundation for a
 drag-and-drop builder: a CRUD app over a JSON document plus a registry browser.
 Nothing in the engine knows the builder exists.
 
-```ts
-const spec = {
-  name: "support",
-  channels: { messages: { reducer: "append" } },
-  nodes: [{ id: "agent", type: "llm", config: { model: "claude-opus-4-8" } }],
-  edges: [
-    { from: "__start__", to: "agent" },
-    { from: "agent", to: "__end__" },
-  ],
-};
+```json
+{
+  "name": "support",
+  "channels": { "messages": { "reducer": "append" } },
+  "nodes": [{ "id": "agent", "type": "llm", "config": { "model": "claude-opus-4-8" } }],
+  "edges": [
+    { "from": "__start__", "to": "agent" },
+    { "from": "agent", "to": "__end__" }
+  ]
+}
+```
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
 const g = fromSpec(spec, registry).compile();
 assert.deepEqual(toSpec(g), spec);   // round-trip is a conformance test
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+The same spec compiles through the node registry in .NET, and the round-trip is a
+conformance test there too: build the graph from the spec, serialize it back, and
+assert you recover exactly the document you started from.
+
+</TabItem>
+</Tabs>
 
 ## The node registry
 
@@ -47,20 +65,20 @@ runs both.
    is safe to store; if it cannot, you find out at serialize time, not at load
    time.
 
-```ts
-const spec = {
-  name: "support-agent",
-  channels: { messages: { reducer: "append" }, cart: { reducer: "last_write" } },
-  nodes: [
-    { id: "agent", type: "llm", config: { model: "claude-opus-4-8", tools: ["search"] } },
-    { id: "checkout", type: "http", config: { url: "…" } },
+```json
+{
+  "name": "support-agent",
+  "channels": { "messages": { "reducer": "append" }, "cart": { "reducer": "last_write" } },
+  "nodes": [
+    { "id": "agent", "type": "llm", "config": { "model": "claude-opus-4-8", "tools": ["search"] } },
+    { "id": "checkout", "type": "http", "config": { "url": "…" } }
   ],
-  edges: [
-    { from: "__start__", to: "agent" },
-    { from: "agent", to: "checkout", when: { channel: "intent", eq: "buy" } },
-    { from: "checkout", to: "__end__" },
-  ],
-};
+  "edges": [
+    { "from": "__start__", "to": "agent" },
+    { "from": "agent", "to": "checkout", "when": { "channel": "intent", "eq": "buy" } },
+    { "from": "checkout", "to": "__end__" }
+  ]
+}
 ```
 
 Because the round-trip `compile(spec) → toSpec()` is a conformance test, a builder

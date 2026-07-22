@@ -1,0 +1,103 @@
+---
+id: sqlite
+title: SQLite checkpointer
+sidebar_label: SQLite
+sidebar_position: 1
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# SQLite checkpointer
+
+A durable [checkpointer](/checkpointers/overview) in a single SQLite file. A
+parked [interrupt](/model/interrupts) survives a process restart, a deploy, or a
+crash.
+
+## Install
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+`@ilmek/checkpoint-sqlite` — zero dependencies, on Node's built-in `node:sqlite`.
+
+```bash
+npm install @ilmek/core @ilmek/checkpoint-sqlite
+```
+
+Requires **Node ≥ 22.5** (for the built-in `node:sqlite` module).
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+`Ilmek.Checkpointer.Sqlite` — backed by `Microsoft.Data.Sqlite`.
+
+```bash
+dotnet add package Ilmek.Core
+dotnet add package Ilmek.Checkpointer.Sqlite
+```
+
+Targets .NET 9.
+
+</TabItem>
+</Tabs>
+
+## Usage
+
+Open the file and hand it to the run — it creates and migrates the database on
+first use, so there is no separate setup step.
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { run } from "@ilmek/core";
+import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
+
+const cp = await SqliteCheckpointer.open("./agent.db");   // creates + migrates
+await run(graph, input, { threadId, checkpointer: cp });
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
+var opts = new RunOptions { ThreadId = threadId, Checkpointer = cp };
+await IlmekRuntime.RunAsync(graph, input, opts);
+```
+
+</TabItem>
+</Tabs>
+
+## Bring your own driver
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+It talks to a **duck-typed** database (`exec` / `prepare`), so
+[`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) drops in unchanged
+if you would rather use it than the built-in module.
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+`SqliteCheckpointer.Open(path)` manages its own connection. To control the
+connection yourself — pooling, a shared cache, an in-memory database — construct
+it from a `SqliteConnection` instead:
+
+```csharp
+var cp = new SqliteCheckpointer(connection);
+```
+
+</TabItem>
+</Tabs>
+
+## When to reach for Postgres instead
+
+SQLite gives you single-process durability. For threads that must be read and
+resumed from **more than one process** — a web tier plus a worker tier, say — use
+[`@ilmek/checkpoint-postgres`](/checkpointers/postgres) instead (TypeScript today;
+a .NET Postgres checkpointer is on the roadmap).

@@ -5,6 +5,9 @@ sidebar_label: Overview
 sidebar_position: 0
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Control flow
 
 Beyond static edges and routers ([Graph](/model/graph)), three primitives cover
@@ -18,6 +21,9 @@ stories all stay free of double-effects.
 | [`command`](/control-flow/command) | §15 | Let a node decide its own next hop *after* seeing its update. |
 | [`retry`](/control-flow/retry) | §16 | Re-run a flaky node safely, without repeating committed effects. |
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 // §14 send — map-reduce: one worker per item, each with its OWN input state
 .router("plan", (state) => state.items.map((item) => send("worker", { item })))
@@ -28,5 +34,25 @@ stories all stay free of double-effects.
 // §16 retry — and because completed steps are journaled, retries are SAFE
 .node("charge_then_call", fn, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2 } })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+// §14 send — map-reduce: one worker per item, each with its OWN input state
+.Router("plan", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new { item })))
+
+// §15 command — a node decides its own next hop, seeing the update it just wrote
+.Node("agent", (state, ctx) => Command.Create(
+    Update.For<State>().Append(s => s.Messages, reply),
+    reply.Done ? Graph.End : "tools"))
+
+// §16 retry — and because completed steps are journaled, retries are SAFE
+.Node("charge_then_call", fn,
+    retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+```
+
+</TabItem>
+</Tabs>
 
 `pnpm demo:mapreduce` runs all three together.

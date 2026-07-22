@@ -5,6 +5,9 @@ sidebar_label: send (fan-out)
 sidebar_position: 1
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # `send` — dynamic fan-out
 
 *Normative: [MODEL.md §14](/reference/spec).*
@@ -16,9 +19,28 @@ parallel, each with its own input**. It is the map-reduce primitive.
 A router may return `send(node, input)` values, alone or mixed with plain node
 names:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .router("fanout", (state) => state.items.map((item) => send("worker", { item })))
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Router("fanout", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new { item })))
+```
+
+The worker declares its own input type:
+
+```csharp
+.Node<WorkerInput>("worker", (input, ctx) => /* input is the send payload */)
+```
+
+</TabItem>
+</Tabs>
 
 ## Semantics
 
@@ -41,9 +63,26 @@ names:
 When the fan-out set is only known *after* a node's work, return the sends in a
 [`command`](/control-flow/command) goto:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .node("plan", (state, ctx) => {
   const items = /* ...computed inside the node... */;
   return command({ goto: items.map((i) => send("worker", i)) });
 })
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Node("plan", (state, ctx) =>
+{
+    var items = /* ...computed inside the node... */;
+    return Command.Goto_(items.Select(i => (object)new Send("worker", i)).ToArray());
+})
+```
+
+</TabItem>
+</Tabs>

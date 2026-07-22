@@ -5,6 +5,9 @@ sidebar_label: The journal
 sidebar_position: 4
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # The journal
 
 *Normative: [MODEL.md §5](/reference/spec).* This is the core of ilmek and the
@@ -39,6 +42,9 @@ you where.
 So on the pass after an interrupt, the node re-runs from the top, but every step
 it already completed returns instantly from the journal:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 async node(state, ctx) {
   // 1st pass: calls Orders.create, journals the result.
@@ -56,6 +62,30 @@ async node(state, ctx) {
 }
 ```
 
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+async (state, ctx) =>
+{
+    // 1st pass: calls Orders.Create, journals the result.
+    // resume pass: returns the journaled order. Orders.Create is NOT called.
+    var order = await ctx.StepAsync("create_order", () => Orders.Create(state.Cart));
+
+    // 1st pass: no answer in the journal → the task halts here.
+    // resume pass: returns the user's answer from the journal.
+    var answer = await ctx.InterruptAsync<string>(new { question = $"Charge {order.Total}?" });
+
+    // Only ever reached on the resume pass.
+    await ctx.StepAsync("charge", () => Payments.Charge(order, answer));
+
+    return Update.For<CheckoutState>().Append(s => s.Messages, "done");
+}
+```
+
+</TabItem>
+</Tabs>
+
 `Orders.create` runs exactly once across both passes. That is what *resume from
 the line* means: not a restored call stack, but **an effect that cannot happen
 twice**.
@@ -70,11 +100,27 @@ three times journals `charge#0`, `charge#1`, `charge#2`. This restores
 order-dependence for that key, so **loops should carry a stable key** derived from
 the data:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 for (const item of state.cart) {
   await ctx.step(`charge:${item.id}`, () => Payments.charge(item));   // stable
 }
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+foreach (var item in state.Cart)
+{
+    await ctx.StepAsync($"charge:{item.Id}", () => Payments.Charge(item));   // stable
+}
+```
+
+</TabItem>
+</Tabs>
 
 Journaled values **must survive a serializer round-trip**: what a step returns on
 a fresh call and what it returns from the journal must be equal. A step returning

@@ -5,6 +5,9 @@ sidebar_label: Graph
 sidebar_position: 2
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Graph
 
 *Normative: [MODEL.md §3](/reference/spec).*
@@ -12,6 +15,9 @@ sidebar_position: 2
 A graph is a set of **channels** (the state), **nodes** (the work), and **edges**
 (the flow). It is always **data**: the compiled form is derived from a
 [spec](/graphs-as-data), never the other way round.
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
 
 ```ts
 const g = graph("support")
@@ -24,6 +30,31 @@ const g = graph("support")
   .edge("checkout", END)
   .compile();
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+/// <summary>Support state: an append-only message log and a last-write cart.</summary>
+public sealed class SupportState
+{
+    [Append] public List<string> Messages { get; set; } = new();
+    public Cart Cart { get; set; } = new();
+}
+
+var g = Graph.Create<SupportState>("support")
+    .Node("agent", Agent.Run)
+    .Node("checkout", Checkout.Run)
+    .Edge(Graph.Start, "agent")
+    .Edge("agent", "checkout", when: (state, ctx) => state.Intent == "buy")   // conditional
+    .Edge("checkout", Graph.End)
+    .Compile();
+```
+
+</TabItem>
+</Tabs>
 
 ## Nodes
 
@@ -41,18 +72,44 @@ Both are implicit and have no body.
 A plain edge connects two nodes unconditionally. A **conditional edge** takes a
 predicate; when it passes, the edge is taken:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .edge("agent", "checkout", (state) => state.intent === "buy")
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Edge("agent", "checkout", when: (state, ctx) => state.Intent == "buy")
+```
+
+</TabItem>
+</Tabs>
 
 ## Routers
 
 A **router** returns the next hop dynamically — a node name, a list of names
 (fan-out), or `END`:
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 .router("plan", (state) => state.needsTool ? "tools" : "respond")
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+.Router("plan", (state, ctx) => new[] { state.NeedsTool ? "tools" : "respond" })
+```
+
+</TabItem>
+</Tabs>
 
 A router (and any conditional predicate) **must be pure**. It runs inside
 *planning*, not inside a task — so it has **no journal** and must not perform side

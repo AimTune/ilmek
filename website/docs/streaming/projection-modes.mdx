@@ -5,6 +5,9 @@ sidebar_label: Projection modes
 sidebar_position: 1
 ---
 
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
 # Projection modes
 
 *Normative: [MODEL.md §10.1](/reference/spec).*
@@ -21,12 +24,31 @@ The single typed [event stream](/streaming/overview) is canonical. A consumer ma
 | `messages` | `custom` | just the payloads that are token chunks |
 | `debug` | every event | the event itself |
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
 ```ts
 // token-by-token, plus the committed update, multiplexed through one pass
 for await (const part of streamModes(g, { prompt }, ["messages", "updates"])) {
   if (part.mode === "messages") process.stdout.write((part.data as TokenChunk).text);
 }
 ```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+// token-by-token, plus the committed update, multiplexed through one pass
+await foreach (var part in Streaming.Projected(
+    IlmekRuntime.Stream(g, new { prompt }),
+    new[] { StreamMode.Messages, StreamMode.Updates }))
+{
+    if (part.Mode == StreamMode.Messages) Console.Write(part.Data);
+}
+```
+
+</TabItem>
+</Tabs>
 
 ## Projection adds no information
 
