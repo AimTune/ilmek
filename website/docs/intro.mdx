@@ -45,8 +45,8 @@ output, which is what having a spec is for.
 
 | | check | packages |
 |---|---|---|
-| **TypeScript** (reference) | `cd ts && pnpm check` | `@ilmek/core`, `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres`, `@ilmek/skills` |
-| **.NET** | `cd dotnet && dotnet test Ilmek.sln` | `Ilmek.Core`, `Ilmek.Checkpointer.Sqlite`, `Ilmek.Skills` |
+| **TypeScript** (reference) | `cd ts && pnpm check` | `@ilmek/core`, `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres`, `@ilmek/skills`, `@ilmek/mcp` |
+| **.NET** | `cd dotnet && dotnet test Ilmek.sln` | `Ilmek.Core`, `Ilmek.Checkpointer.Sqlite`, `Ilmek.Skills`, `Ilmek.Mcp` |
 
 ## Where to go next
 
@@ -57,5 +57,7 @@ output, which is what having a spec is for.
   the journal, interrupts.
 - [**Skills**](/skills) — `SKILL.md` folders a model reads progressively, and
   `skill` node types for stored graphs.
+- [**MCP**](/mcp) — Model Context Protocol servers as journaled tools,
+  resources and prompt-derived skills.
 - [**Checkpointers**](/checkpointers/overview) — durable threads in SQLite or
   Postgres.

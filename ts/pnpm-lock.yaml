@@ -35,6 +35,12 @@ importers:
 
   packages/core: {}
 
+  packages/mcp:
+    dependencies:
+      '@ilmek/core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/skills:
     dependencies:
       '@ilmek/core':

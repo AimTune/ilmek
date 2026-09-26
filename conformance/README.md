@@ -33,7 +33,9 @@ when all pass.
 The skills reader (`@ilmek/skills` / `Ilmek.Skills`) has its own shared
 fixture: the folders under [skills/](skills/) are parsed by both languages and
 compared with `skills/expected.json` as canonical JSON. See
-[skills/README.md](skills/README.md).
+[skills/README.md](skills/README.md). The MCP toolbox (`@ilmek/mcp` /
+`Ilmek.Mcp`) likewise reduces the scripted server in [mcp/](mcp/) to
+`mcp/expected.json`; see [mcp/README.md](mcp/README.md).
 
 ## Why a list and not a shared harness (yet)
 

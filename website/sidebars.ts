@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
     },
     "graphs-as-data",
     "skills",
+    "mcp",
     {
       type: "category",
       label: "Reference",

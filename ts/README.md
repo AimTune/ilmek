@@ -14,6 +14,7 @@ ts/
       sqlite/                @ilmek/checkpoint-sqlite   (node:sqlite, zero deps)
       postgres/              @ilmek/checkpoint-postgres (any pg-shaped client)
     skills/                  @ilmek/skills — SKILL.md folders, progressive disclosure (zero deps)
+    mcp/                     @ilmek/mcp — MCP servers as journaled tools (duck-typed client, zero deps)
   examples/                  @ilmek/examples — runnable demos
   tsconfig.base.json         shared compiler options
   tsconfig.json              solution: `tsc -b` builds every package

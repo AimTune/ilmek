@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <AssemblyName>Ilmek.Mcp</AssemblyName>
+    <RootNamespace>Ilmek.Mcp</RootNamespace>
+    <Description>MCP for ilmek — consume Model Context Protocol servers as replay-safe tools, resources and prompt-derived skills, and drop them into a graph as data.</Description>
+    <PackageTags>$(PackageTags);mcp;model-context-protocol;tools</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- No SDK dependency: the client is a small interface (IMcpClient) an app
+         implements over the official ModelContextProtocol client in a few lines,
+         so this package tracks no SDK version and tests against a fake. -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Ilmek.Core/Ilmek.Core.csproj" />
+  </ItemGroup>
+
+</Project>
