@@ -35,6 +35,12 @@ importers:
 
   packages/core: {}
 
+  packages/skills:
+    dependencies:
+      '@ilmek/core':
+        specifier: workspace:*
+        version: link:../core
+
 packages:
 
   '@types/node@24.13.3':

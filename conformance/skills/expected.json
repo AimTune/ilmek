@@ -1,0 +1,30 @@
+{
+  "skills": [
+    {
+      "name": "brand-voice",
+      "description": "Write customer-facing copy in the AimTune voice: plain, warm & specific — use for emails, release notes and <announcements>.",
+      "instructions": "Short sentences. No exclamation marks. Name the concrete thing, not the category.",
+      "resources": []
+    },
+    {
+      "name": "pdf",
+      "description": "Fill, merge and read PDF forms. Use when the user mentions a PDF, a form to fill, or asks to combine documents.",
+      "instructions": "# PDF skill\n\nUse the bundled helpers instead of reinventing them:\n\n- `scripts/fill.py` fills a form from a JSON payload.\n- See `references/forms.md` for the field-naming conventions.\n\nAlways confirm the output path with the user before writing.",
+      "resources": [
+        "references/forms.md",
+        "scripts/fill.py"
+      ],
+      "license": "Apache-2.0",
+      "compatibility": "Needs python3 with pypdf installed.",
+      "allowedTools": [
+        "Read",
+        "Bash(python3:*)"
+      ],
+      "metadata": {
+        "author": "AimTune",
+        "version": "1.2"
+      }
+    }
+  ],
+  "prompt": "You have the following skills available. Each entry gives a skill's name and what it is for. When a task matches a skill, load that skill's full instructions by name before you act on the task.\n\n<available_skills>\n  <skill>\n    <name>brand-voice</name>\n    <description>Write customer-facing copy in the AimTune voice: plain, warm &amp; specific — use for emails, release notes and &lt;announcements&gt;.</description>\n  </skill>\n  <skill>\n    <name>pdf</name>\n    <description>Fill, merge and read PDF forms. Use when the user mentions a PDF, a form to fill, or asks to combine documents.</description>\n  </skill>\n</available_skills>"
+}

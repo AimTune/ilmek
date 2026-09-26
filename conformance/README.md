@@ -28,6 +28,13 @@ when all pass.
 | 10 | A node's `command({goto})` overrides its static edges; `command({update})` reduces before the goto is planned | §15 |
 | 11 | A retried node re-runs its body but **not** its completed steps | §16 |
 
+## Companion packages
+
+The skills reader (`@ilmek/skills` / `Ilmek.Skills`) has its own shared
+fixture: the folders under [skills/](skills/) are parsed by both languages and
+compared with `skills/expected.json` as canonical JSON. See
+[skills/README.md](skills/README.md).
+
 ## Why a list and not a shared harness (yet)
 
 Each language runs its own harness against its own idioms — Node's `node:test`,

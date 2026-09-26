@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+    <AssemblyName>Ilmek.Skills</AssemblyName>
+    <RootNamespace>Ilmek.Skills</RootNamespace>
+    <Description>Agent Skills for ilmek — load SKILL.md folders, expose them to a model with progressive disclosure, and drop them into a graph as data.</Description>
+    <PackageTags>$(PackageTags);skills;agent-skills</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- No third-party dependencies: the SKILL.md reader is written for exactly
+         the YAML subset the format needs, so it matches @ilmek/skills byte for byte. -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Ilmek.Core/Ilmek.Core.csproj" />
+  </ItemGroup>
+
+</Project>

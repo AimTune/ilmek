@@ -35,10 +35,12 @@ ts/                               TypeScript — reference implementation
       sqlite/                     @ilmek/checkpoint-sqlite
       postgres/                   @ilmek/checkpoint-postgres
       …                           (redis → a sibling here)
+    skills/                       @ilmek/skills — SKILL.md folders, progressive disclosure
   examples/                       runnable demos (@ilmek/examples)
 dotnet/                           .NET port
   src/Ilmek.Core/                 the engine. no third-party deps.
   src/Ilmek.Checkpointer.Sqlite/  durable threads in a file
+  src/Ilmek.Skills/               SKILL.md folders, progressive disclosure
   test/                           the conformance suite (xUnit)
   examples/Ilmek.Examples/        the same demos, same output
 ```
@@ -238,6 +240,7 @@ TypeScript 176 tests (`cd ts && pnpm check`), .NET 28 (`cd dotnet && dotnet test
 | in-memory checkpointer (in core) | ✅ | ✅ |
 | **SQLite** checkpointer — durable, single file | ✅ | ✅ |
 | **Postgres** checkpointer | ✅ | ⬜ |
+| **Skills** — SKILL.md reader, catalog, prompt, `skill` node types (shared fixtures in `conformance/skills`) | ✅ | ✅ |
 
 Next, roughly in order:
 
