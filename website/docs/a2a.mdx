@@ -1,0 +1,210 @@
+---
+id: a2a
+title: A2A
+sidebar_label: A2A
+sidebar_position: 9
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# A2A — calling other agents
+
+`@ilmek/a2a` and `Ilmek.A2A` call an [Agent2Agent](https://a2a-protocol.org)
+agent from inside a graph. The remote agent's reply comes back as plain data,
+every round-trip is **journaled** so a pause/resume never re-sends a message
+the other agent already acted on, and a remote agent's own human-in-the-loop
+pause arrives as an `input-required` task the node can answer, escalate to its
+own human, or abandon. One node type lets a stored graph spec delegate to an
+agent by name.
+
+ilmek stays LLM-agnostic: nothing here calls a model. The other direction —
+*serving* a graph as an A2A agent — is mekik's job:
+[mekik → Serving → A2A agent](https://mekik.aimtune.dev/serving/a2a). Both
+implementations are held to one result by the scripted agent in
+[`conformance/a2a`](https://github.com/AimTune/ilmek/tree/main/conformance/a2a).
+
+## Install and connect
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```bash
+npm install @ilmek/core @ilmek/a2a
+```
+
+Zero dependencies — the HTTP transport rides the global `fetch`.
+
+```ts
+import { A2aAgent, HttpA2aTransport } from "@ilmek/a2a";
+
+// An origin (card at /.well-known/agent-card.json), a card URL, or the JSON-RPC endpoint.
+const transport = new HttpA2aTransport("https://desk.example.com", { headers: { Authorization: "Bearer …" } });
+const desk = await A2aAgent.connect(transport, { name: "desk" });   // fetches the card once
+console.log(desk.card.name, desk.card.skills?.map((s) => s.id));
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```bash
+dotnet add package Ilmek.Core
+dotnet add package Ilmek.A2A
+```
+
+No third-party dependencies — the HTTP transport rides `HttpClient`.
+
+```csharp
+using Ilmek.A2A;
+
+var http = new HttpClient();
+http.DefaultRequestHeaders.Authorization = new("Bearer", token);
+var desk = await A2aAgent.ConnectAsync(new HttpA2aTransport(http, "https://desk.example.com"), name: "desk");
+Console.WriteLine(desk.Card["name"]);
+```
+
+</TabItem>
+</Tabs>
+
+`connect` fetches the Agent Card once; `name` is the journal-key namespace
+(default: the card's name, slugified). The transport is a two-call port —
+`getAgentCard` and `post` — so a scripted fake stands in for tests.
+
+## Sending a message — once
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { channel, END, graph, START } from "@ilmek/core";
+
+const g = graph("delegate")
+  .channel("question", channel.lastWrite<string>(""))
+  .channel("log", channel.append<string>())
+  .node("ask", async (state, ctx) => {
+    // Journaled under `a2a:desk:send`: on the resume pass after the interrupt
+    // below, the recorded task comes back and the desk is not messaged again.
+    const first = await desk.send(ctx, state.question);
+
+    if (!first.needsInput) return { log: [first.text] };
+
+    // The remote agent paused for a human. Escalate to ours…
+    const answer = await ctx.interrupt<string>({ question: first.statusText });
+    // …and answer the remote task. A second send needs its own journal key.
+    const done = await desk.send(ctx, answer, { taskId: first.taskId, key: "answer" });
+    return { log: [done.text] };
+  })
+  .edge(START, "ask").edge("ask", END)
+  .compile();
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+var g = Graph.Create("delegate")
+    .Channel("question", Channels.LastWrite(""))
+    .Channel("log", Channels.Append())
+    .Node("ask", async (State state, IContext ctx) =>
+    {
+        // Journaled under `a2a:desk:send`: on the resume pass after the interrupt
+        // below, the recorded task comes back and the desk is not messaged again.
+        var first = await desk.SendAsync(ctx, state.Get<string>("question"));
+
+        if (!first.NeedsInput) return Update.Of("log", new List<object?> { first.Text });
+
+        // The remote agent paused for a human. Escalate to ours…
+        var answer = await ctx.InterruptAsync<string>(new { question = first.StatusText });
+        // …and answer the remote task. A second send needs its own journal key.
+        var done = await desk.SendAsync(ctx, answer, new SendOptions { TaskId = first.TaskId, Key = "answer" });
+        return Update.Of("log", new List<object?> { done.Text });
+    })
+    .Edge(Graph.Start, "ask").Edge("ask", Graph.End)
+    .Compile();
+```
+
+</TabItem>
+</Tabs>
+
+The result is **normalized** to plain data — that is what the journal keeps:
+
+| field | meaning |
+|---|---|
+| `taskId`, `contextId` | the remote task and conversation; pass `contextId` to continue, `taskId` to answer |
+| `state` | the A2A task state: `completed`, `input-required`, `failed`, `rejected`, `canceled`, … |
+| `text` | the text of the task's artifacts (the reply), joined |
+| `statusText` | the agent's status message — what it needs, or why it stopped |
+| `statusData` | the status message's first data part (a mekik agent puts its open interrupts here as `pending`) |
+| `needsInput` | `state === "input-required"` |
+| `task` | the task, verbatim |
+
+`send` takes `contextId` to continue a remote conversation, `taskId` to answer a
+paused task, `data` for a data part (a mekik agent with several open pauses
+wants `{ answers: { <id>: <answer> } }`), and `key` to separate two sends in one
+node. `invoke` is the raw, unjournaled call. A JSON-RPC error from the remote
+agent throws `A2aError` / `A2aException` with its code (`-32001` task not found,
+…); an agent that answers `message/send` with a bare message is read as a
+completed task.
+
+## A2A as graph data
+
+A [stored graph spec](/graphs-as-data) never carries executable text, so an
+agent is referenced by name and resolved through the node registry at build
+time. `a2aNodes(agents)` / `A2aNodes.Registry(agents)` adds one node type:
+
+| type | config | does |
+|---|---|---|
+| `a2a_call` | `{ agent, text? \| textFrom, contextFrom?, taskFrom?, to?, textOnly? }` | sends `text` (or channel `textFrom`) to `agent`, continuing the remote conversation in channel `contextFrom` and answering the task in channel `taskFrom` when set, journaled; writes the result — or just its `text` — to channel `to` (default `"result"`) |
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { END, fromSpec, run, START } from "@ilmek/core";
+import type { GraphSpec } from "@ilmek/core";
+import { a2aNodes } from "@ilmek/a2a";
+
+const spec: GraphSpec = {
+  name: "delegate",
+  channels: { question: {}, answer: {} },
+  nodes: [{ id: "ask", type: "a2a_call", config: { agent: "desk", textFrom: "question", to: "answer", textOnly: true } }],
+  edges: [{ from: START, to: "ask" }, { from: "ask", to: END }],
+};
+
+const g = fromSpec(spec, a2aNodes({ desk })).compile();
+const result = await run(g, { question: "Where is ORD-42?" }, { threadId: "t-1" });
+console.log(result.state?.answer);
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+using Ilmek.A2A;
+
+var spec = new GraphSpec
+{
+    Name = "delegate",
+    Channels = new Dictionary<string, SpecChannel> { ["question"] = new(), ["answer"] = new() },
+    Nodes = [new SpecNode("ask", "a2a_call", new Dictionary<string, object?> { ["agent"] = "desk", ["textFrom"] = "question", ["to"] = "answer", ["textOnly"] = true })],
+    Edges = [new SpecEdge(Graph.Start, "ask"), new SpecEdge("ask", Graph.End)],
+};
+
+var g = Spec.FromSpec(spec, A2aNodes.Registry(new Dictionary<string, A2aAgent> { ["desk"] = desk })).Compile();
+var result = await g.RunAsync(new Dictionary<string, object?> { ["question"] = "Where is ORD-42?" }, new RunOptions { ThreadId = "t-1" });
+Console.WriteLine(result.State!.Get<string>("answer"));
+```
+
+</TabItem>
+</Tabs>
+
+## Conformance
+
+[`conformance/a2a/agent.json`](https://github.com/AimTune/ilmek/tree/main/conformance/a2a)
+scripts a remote agent; both implementations build a fake transport from it,
+connect, send every scripted message and compare the normalized results with
+`expected.json` as canonical JSON. Journaling, the HTTP transport's URL rules
+and the node type are asserted inline in each suite.

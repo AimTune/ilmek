@@ -18,11 +18,13 @@ dotnet/
     Ilmek.Checkpointer.Sqlite/   durable threads in a file (Microsoft.Data.Sqlite)
     Ilmek.Skills/                SKILL.md folders, progressive disclosure (no dependencies)
     Ilmek.Mcp/                   MCP servers as journaled tools (IMcpClient interface, no dependencies)
+    Ilmek.A2A/                   call A2A agents, journaled (IA2aTransport + HttpClient, no dependencies)
   test/
     Ilmek.Core.Tests/            the MODEL.md §12 conformance suite (xUnit)
     Ilmek.Checkpointer.Sqlite.Tests/
     Ilmek.Skills.Tests/          shares conformance/skills with the TypeScript suite
     Ilmek.Mcp.Tests/             shares conformance/mcp with the TypeScript suite
+    Ilmek.A2A.Tests/             shares conformance/a2a with the TypeScript suite
   examples/
     Ilmek.Examples/              runnable demos
 ```

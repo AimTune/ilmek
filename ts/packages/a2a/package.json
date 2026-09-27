@@ -1,0 +1,49 @@
+{
+  "name": "@ilmek/a2a",
+  "version": "0.1.1",
+  "description": "A2A for ilmek — call Agent2Agent agents from a graph, replay-safe, with human-in-the-loop pauses surfaced as input-required tasks, and drop them into a graph as data.",
+  "type": "module",
+  "license": "MIT",
+  "author": "AimTune",
+  "homepage": "https://github.com/AimTune/ilmek/tree/main/ts/packages/a2a#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AimTune/ilmek.git",
+    "directory": "ts/packages/a2a"
+  },
+  "bugs": "https://github.com/AimTune/ilmek/issues",
+  "keywords": [
+    "ilmek",
+    "agent",
+    "a2a",
+    "agent2agent",
+    "tools",
+    "llm"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@ilmek/core": "workspace:*"
+  }
+}

@@ -1,6 +1,6 @@
 name: Release (NuGet)
 
-# Publishes Ilmek.Core, Ilmek.Checkpointer.Sqlite, Ilmek.Skills and Ilmek.Mcp to nuget.org via NuGet
+# Publishes Ilmek.Core, Ilmek.Checkpointer.Sqlite, Ilmek.Skills, Ilmek.Mcp and Ilmek.A2A to nuget.org via NuGet
 # trusted publishing (OIDC) — no API key stored. Trigger by pushing a version
 # tag after bumping <Version> in dotnet/Directory.Build.props:
 #
