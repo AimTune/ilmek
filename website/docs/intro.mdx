@@ -45,8 +45,8 @@ output, which is what having a spec is for.
 
 | | check | packages |
 |---|---|---|
-| **TypeScript** (reference) | `cd ts && pnpm check` | `@ilmek/core`, `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres` |
-| **.NET** | `cd dotnet && dotnet test Ilmek.sln` | `Ilmek.Core`, `Ilmek.Checkpointer.Sqlite` |
+| **TypeScript** (reference) | `cd ts && pnpm check` | `@ilmek/core`, `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres`, `@ilmek/skills`, `@ilmek/mcp`, `@ilmek/a2a` |
+| **.NET** | `cd dotnet && dotnet test Ilmek.sln` | `Ilmek.Core`, `Ilmek.Checkpointer.Sqlite`, `Ilmek.Skills`, `Ilmek.Mcp`, `Ilmek.A2A` |
 
 ## Where to go next
 
@@ -55,5 +55,11 @@ output, which is what having a spec is for.
 - [**Concepts**](/concepts) — the journal, steps, and why replay is invisible.
 - [**Execution model**](/model/state-and-channels) — state, graphs, supersteps,
   the journal, interrupts.
+- [**Skills**](/skills) — `SKILL.md` folders a model reads progressively, and
+  `skill` node types for stored graphs.
+- [**MCP**](/mcp) — Model Context Protocol servers as journaled tools,
+  resources and prompt-derived skills.
+- [**A2A**](/a2a) — call Agent2Agent agents from a node, journaled, with their
+  human-in-the-loop pauses surfaced as data.
 - [**Checkpointers**](/checkpointers/overview) — durable threads in SQLite or
   Postgres.

@@ -1,0 +1,76 @@
+{
+  "description": "A scripted A2A agent: its Agent Card and the task each message/send returns, keyed by the message text. Both @ilmek/a2a and Ilmek.A2A build a fake transport from this file and must reduce every task to expected.json.",
+  "card": {
+    "protocolVersion": "0.3.0",
+    "name": "Support Desk",
+    "description": "Answers questions about orders.",
+    "url": "https://bot.example.com/a2a",
+    "version": "1.0.0",
+    "preferredTransport": "JSONRPC",
+    "capabilities": { "streaming": false, "pushNotifications": false, "stateTransitionHistory": false },
+    "defaultInputModes": ["text/plain"],
+    "defaultOutputModes": ["text/plain"],
+    "skills": [{ "id": "chat", "name": "Support Desk", "description": "Answers questions about orders.", "tags": ["chat"] }]
+  },
+  "sends": {
+    "where is my order?": {
+      "kind": "task",
+      "id": "task-1",
+      "contextId": "conv-1",
+      "status": { "state": "completed", "timestamp": "2025-06-15T15:06:40.000Z" },
+      "artifacts": [
+        { "artifactId": "art-1", "name": "reply", "parts": [{ "kind": "text", "text": "Order ORD-42 totals 249.9." }] },
+        { "artifactId": "art-2", "name": "receipt", "parts": [{ "kind": "file", "file": { "uri": "https://x/receipt.pdf" } }] }
+      ],
+      "history": [{ "kind": "message", "messageId": "m-1", "role": "user", "parts": [{ "kind": "text", "text": "where is my order?" }], "taskId": "task-1", "contextId": "conv-1" }]
+    },
+    "refund please": {
+      "kind": "task",
+      "id": "task-2",
+      "contextId": "conv-1",
+      "status": {
+        "state": "input-required",
+        "timestamp": "2025-06-15T15:06:40.000Z",
+        "message": {
+          "kind": "message",
+          "messageId": "m-3",
+          "role": "agent",
+          "taskId": "task-2",
+          "contextId": "conv-1",
+          "parts": [
+            { "kind": "text", "text": "The agent needs input before it can continue:\n- interrupt \"agent:interrupt#0\": {\"title\":\"Refund 249.9?\"} — options: Approve, Cancel" },
+            { "kind": "data", "data": { "pending": [{ "id": "agent:interrupt#0", "payload": { "title": "Refund 249.9?" }, "actions": [{ "label": "Approve", "value": { "approved": true } }, { "label": "Cancel" }] }] } }
+          ]
+        }
+      },
+      "artifacts": []
+    },
+    "Approve": {
+      "kind": "task",
+      "id": "task-2",
+      "contextId": "conv-1",
+      "status": { "state": "completed", "timestamp": "2025-06-15T15:06:41.000Z" },
+      "artifacts": [{ "artifactId": "art-3", "name": "reply", "parts": [{ "kind": "text", "text": "Refunded." }] }]
+    },
+    "boom": {
+      "kind": "task",
+      "id": "task-3",
+      "contextId": "conv-2",
+      "status": {
+        "state": "failed",
+        "timestamp": "2025-06-15T15:06:40.000Z",
+        "message": { "kind": "message", "messageId": "m-5", "role": "agent", "parts": [{ "kind": "text", "text": "agent: kaboom" }] }
+      }
+    },
+    "just a message": {
+      "kind": "message",
+      "messageId": "m-9",
+      "role": "agent",
+      "contextId": "conv-3",
+      "parts": [{ "kind": "text", "text": "A bare message, no task." }]
+    }
+  },
+  "errors": {
+    "unknown task": { "code": -32001, "message": "task \"task-nope\" not found" }
+  }
+}

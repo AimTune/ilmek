@@ -1,0 +1,112 @@
+{
+  "tools": [
+    {
+      "name": "github__search",
+      "remoteName": "search",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ]
+      },
+      "description": "Search repositories."
+    },
+    {
+      "name": "github__get_file",
+      "remoteName": "get_file",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "github__internal_admin",
+      "remoteName": "internal_admin",
+      "inputSchema": {
+        "type": "object"
+      },
+      "description": "Not for models."
+    }
+  ],
+  "calls": {
+    "github__search": {
+      "text": "3 results\nilmek, mekik, chativa",
+      "isError": false,
+      "content": [
+        {
+          "type": "text",
+          "text": "3 results"
+        },
+        {
+          "type": "text",
+          "text": "ilmek, mekik, chativa"
+        }
+      ],
+      "structured": {
+        "count": 3
+      }
+    },
+    "github__get_file": {
+      "text": "# README",
+      "isError": false,
+      "content": [
+        {
+          "type": "image",
+          "data": "aGVsbG8=",
+          "mimeType": "image/png"
+        },
+        {
+          "type": "resource",
+          "resource": {
+            "uri": "file:///README.md",
+            "mimeType": "text/markdown",
+            "text": "# README"
+          }
+        }
+      ]
+    },
+    "github__internal_admin": {
+      "text": "permission denied",
+      "isError": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "permission denied"
+        }
+      ]
+    }
+  },
+  "resource": "# README\n\nHello.",
+  "skills": [
+    {
+      "name": "github-code-review",
+      "description": "Review a pull request in the house style.",
+      "instructions": "Review the diff below.\n\nFocus on correctness first.",
+      "resources": [],
+      "metadata": {
+        "server": "github",
+        "prompt": "Code Review"
+      }
+    },
+    {
+      "name": "github-summarize",
+      "description": "The \"summarize\" prompt of MCP server \"github\".",
+      "instructions": "This skill is the MCP prompt \"summarize\" on server \"github\". It takes arguments, so its text is fetched per use with those arguments:\n- url (required): What to summarize\n- tone",
+      "resources": [],
+      "metadata": {
+        "server": "github",
+        "prompt": "summarize",
+        "arguments": "url,tone"
+      }
+    }
+  ]
+}

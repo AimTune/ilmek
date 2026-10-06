@@ -43,6 +43,9 @@ const sidebars: SidebarsConfig = {
       items: ["checkpointers/sqlite", "checkpointers/postgres"],
     },
     "graphs-as-data",
+    "skills",
+    "mcp",
+    "a2a",
     {
       type: "category",
       label: "Reference",

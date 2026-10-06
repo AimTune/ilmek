@@ -1,0 +1,70 @@
+{
+  "name": "support-desk",
+  "results": {
+    "where is my order?": {
+      "taskId": "task-1",
+      "contextId": "conv-1",
+      "state": "completed",
+      "text": "Order ORD-42 totals 249.9.",
+      "statusText": "",
+      "needsInput": false
+    },
+    "refund please": {
+      "taskId": "task-2",
+      "contextId": "conv-1",
+      "state": "input-required",
+      "text": "",
+      "statusText": "The agent needs input before it can continue:\n- interrupt \"agent:interrupt#0\": {\"title\":\"Refund 249.9?\"} — options: Approve, Cancel",
+      "needsInput": true,
+      "statusData": {
+        "pending": [
+          {
+            "id": "agent:interrupt#0",
+            "payload": {
+              "title": "Refund 249.9?"
+            },
+            "actions": [
+              {
+                "label": "Approve",
+                "value": {
+                  "approved": true
+                }
+              },
+              {
+                "label": "Cancel"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Approve": {
+      "taskId": "task-2",
+      "contextId": "conv-1",
+      "state": "completed",
+      "text": "Refunded.",
+      "statusText": "",
+      "needsInput": false
+    },
+    "boom": {
+      "taskId": "task-3",
+      "contextId": "conv-2",
+      "state": "failed",
+      "text": "",
+      "statusText": "agent: kaboom",
+      "needsInput": false
+    },
+    "just a message": {
+      "taskId": "message:m-9",
+      "contextId": "conv-3",
+      "state": "completed",
+      "text": "A bare message, no task.",
+      "statusText": "",
+      "needsInput": false
+    }
+  },
+  "error": {
+    "code": -32001,
+    "message": "task \"task-nope\" not found"
+  }
+}

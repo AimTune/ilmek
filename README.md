@@ -35,10 +35,16 @@ ts/                               TypeScript — reference implementation
       sqlite/                     @ilmek/checkpoint-sqlite
       postgres/                   @ilmek/checkpoint-postgres
       …                           (redis → a sibling here)
+    skills/                       @ilmek/skills — SKILL.md folders, progressive disclosure
+    mcp/                          @ilmek/mcp — MCP servers as journaled tools, resources, skills
+    a2a/                          @ilmek/a2a — call A2A agents, journaled; input-required as data
   examples/                       runnable demos (@ilmek/examples)
 dotnet/                           .NET port
   src/Ilmek.Core/                 the engine. no third-party deps.
   src/Ilmek.Checkpointer.Sqlite/  durable threads in a file
+  src/Ilmek.Skills/               SKILL.md folders, progressive disclosure
+  src/Ilmek.Mcp/                  MCP servers as journaled tools, resources, skills
+  src/Ilmek.A2A/                  call A2A agents, journaled; input-required as data
   test/                           the conformance suite (xUnit)
   examples/Ilmek.Examples/        the same demos, same output
 ```
@@ -238,6 +244,9 @@ TypeScript 176 tests (`cd ts && pnpm check`), .NET 28 (`cd dotnet && dotnet test
 | in-memory checkpointer (in core) | ✅ | ✅ |
 | **SQLite** checkpointer — durable, single file | ✅ | ✅ |
 | **Postgres** checkpointer | ✅ | ⬜ |
+| **Skills** — SKILL.md reader, catalog, prompt, `skill` node types (shared fixtures in `conformance/skills`) | ✅ | ✅ |
+| **MCP** — toolbox over a duck-typed client, journaled calls, prompts as skills, `mcp_tool` / `mcp_resource` node types (shared fixture in `conformance/mcp`) | ✅ | ✅ |
+| **A2A** — call Agent2Agent agents over a two-call transport port, journaled sends, `input-required` as data, `a2a_call` node type (shared fixture in `conformance/a2a`) | ✅ | ✅ |
 
 Next, roughly in order:
 

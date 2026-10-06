@@ -1,0 +1,68 @@
+{
+  "description": "A scripted MCP server: what tools/list, tools/call, resources/*, prompts/* return. Both @ilmek/mcp and Ilmek.Mcp build a fake client from this file and must reduce it to expected.json.",
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search repositories.",
+      "inputSchema": { "type": "object", "properties": { "q": { "type": "string" } }, "required": ["q"] }
+    },
+    {
+      "name": "get_file",
+      "inputSchema": { "type": "object", "properties": { "path": { "type": "string" } } }
+    },
+    {
+      "name": "internal_admin",
+      "description": "Not for models.",
+      "inputSchema": { "type": "object" }
+    }
+  ],
+  "calls": {
+    "search": {
+      "content": [
+        { "type": "text", "text": "3 results" },
+        { "type": "text", "text": "ilmek, mekik, chativa" }
+      ],
+      "structuredContent": { "count": 3 }
+    },
+    "get_file": {
+      "content": [
+        { "type": "image", "data": "aGVsbG8=", "mimeType": "image/png" },
+        { "type": "resource", "resource": { "uri": "file:///README.md", "mimeType": "text/markdown", "text": "# README" } }
+      ]
+    },
+    "internal_admin": {
+      "content": [{ "type": "text", "text": "permission denied" }],
+      "isError": true
+    }
+  },
+  "resources": [
+    { "uri": "file:///README.md", "name": "README", "mimeType": "text/markdown" }
+  ],
+  "resourceContents": {
+    "file:///README.md": [
+      { "uri": "file:///README.md", "mimeType": "text/markdown", "text": "# README\n\nHello." }
+    ]
+  },
+  "prompts": [
+    {
+      "name": "Code Review",
+      "description": "Review a pull request in the house style.",
+      "arguments": []
+    },
+    {
+      "name": "summarize",
+      "arguments": [
+        { "name": "url", "description": "What to summarize", "required": true },
+        { "name": "tone", "required": false }
+      ]
+    }
+  ],
+  "promptResults": {
+    "Code Review": {
+      "messages": [
+        { "role": "user", "content": { "type": "text", "text": "Review the diff below." } },
+        { "role": "assistant", "content": [{ "type": "text", "text": "Focus on correctness first." }, { "type": "image", "data": "x", "mimeType": "image/png" }] }
+      ]
+    }
+  }
+}

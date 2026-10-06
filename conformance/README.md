@@ -28,6 +28,17 @@ when all pass.
 | 10 | A node's `command({goto})` overrides its static edges; `command({update})` reduces before the goto is planned | §15 |
 | 11 | A retried node re-runs its body but **not** its completed steps | §16 |
 
+## Companion packages
+
+The skills reader (`@ilmek/skills` / `Ilmek.Skills`) has its own shared
+fixture: the folders under [skills/](skills/) are parsed by both languages and
+compared with `skills/expected.json` as canonical JSON. See
+[skills/README.md](skills/README.md). The MCP toolbox (`@ilmek/mcp` /
+`Ilmek.Mcp`) likewise reduces the scripted server in [mcp/](mcp/) to
+`mcp/expected.json`; see [mcp/README.md](mcp/README.md). The A2A client
+(`@ilmek/a2a` / `Ilmek.A2A`) reduces the scripted agent in [a2a/](a2a/) to
+`a2a/expected.json`; see [a2a/README.md](a2a/README.md).
+
 ## Why a list and not a shared harness (yet)
 
 Each language runs its own harness against its own idioms — Node's `node:test`,

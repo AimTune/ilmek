@@ -1,0 +1,302 @@
+---
+id: skills
+title: Skills
+sidebar_label: Skills
+sidebar_position: 7
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# Skills
+
+A **skill** is a folder with a `SKILL.md` at its root: YAML frontmatter that
+names and describes it, then markdown instructions — the
+[Agent Skills](https://agentskills.io) format. Anything else in the folder
+(`scripts/`, `references/`, `assets/`) is a bundled resource. `@ilmek/skills`
+and `Ilmek.Skills` read that format and expose it the way a model should consume
+it — **progressively**:
+
+| level | what the model sees | when | API |
+|---|---|---|---|
+| 1 | every skill's `name` + `description` | always, in the system prompt | `list()` / `renderSkillsPrompt` |
+| 2 | one skill's full instructions | when a task matches | `get(name).instructions` |
+| 3 | one bundled file | when the instructions point at it | `readResource(name, path)` |
+
+ilmek stays LLM-agnostic: nothing here calls a model. A host — [mekik](https://mekik.aimtune.dev),
+or your own agent loop — decides how the catalog reaches the prompt and how a
+`load_skill` tool hands instructions back. The two readers are held to one
+result by the shared folders in [`conformance/skills`](https://github.com/AimTune/ilmek/tree/main/conformance/skills).
+
+## Install
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```bash
+npm install @ilmek/core @ilmek/skills
+```
+
+Zero dependencies. Requires Node ≥ 22.5.
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```bash
+dotnet add package Ilmek.Core
+dotnet add package Ilmek.Skills
+```
+
+No third-party dependencies. Targets .NET 9.
+
+</TabItem>
+</Tabs>
+
+## A skill folder
+
+```
+skills/
+  pdf/
+    SKILL.md
+    references/forms.md
+    scripts/fill.py
+  brand-voice/
+    SKILL.md
+```
+
+```markdown title="skills/pdf/SKILL.md"
+---
+name: pdf
+description: >-
+  Fill, merge and read PDF forms. Use when the user mentions a PDF,
+  a form to fill, or asks to combine documents.
+license: Apache-2.0
+allowed-tools: Read Bash(python3:*)
+metadata:
+  author: AimTune
+  version: "1.2"
+---
+
+# PDF skill
+
+Use the bundled helpers instead of reinventing them:
+
+- `scripts/fill.py` fills a form from a JSON payload.
+- See `references/forms.md` for the field-naming conventions.
+```
+
+The frontmatter rules the reader enforces:
+
+- **`name`** (required) — 1–64 lowercase letters, digits and single hyphens, and
+  it must equal the folder name (`strictName: false` relaxes that).
+- **`description`** (required) — 1–1024 characters. This is the *whole* trigger
+  surface: it is what a model reads to decide whether to load the skill.
+- `license`, `compatibility` — strings. `allowed-tools` — a space-separated
+  string (or a list); advisory, the host decides what a model may call.
+  `metadata` — a mapping of string keys to string values.
+
+The YAML reader supports exactly what the format needs — scalars, quoted
+strings, `|` / `>` block scalars, a nested mapping, block and flow sequences —
+and refuses anchors, tags and sequences of mappings with a stable error code
+(`SkillParseError.code` / `SkillParseException.Code`).
+
+## Load and use
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { SkillCatalog, renderSkillsPrompt } from "@ilmek/skills";
+
+const skills = await SkillCatalog.fromDirectories(["./skills"]);
+
+// Level 1 — the catalog, for the system prompt.
+const system = "You are a document assistant.\n\n" + renderSkillsPrompt(skills.list());
+
+// Level 2 — the instructions, once a task matches.
+const pdf = skills.get("pdf");
+if (pdf) console.log(pdf.instructions);
+
+// Level 3 — a bundled file, when the instructions point at it. Paths are
+// confined to the skill folder: `..` and absolute paths are refused.
+console.log(await skills.readResource("pdf", "references/forms.md"));
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek.Skills;
+
+var skills = await SkillCatalog.FromDirectoriesAsync("./skills");
+
+// Level 1 — the catalog, for the system prompt.
+var system = "You are a document assistant.\n\n" + SkillPrompt.Render(skills.List());
+
+// Level 2 — the instructions, once a task matches.
+if (skills.Get("pdf") is { } pdf) Console.WriteLine(pdf.Instructions);
+
+// Level 3 — a bundled file, when the instructions point at it. Paths are
+// confined to the skill folder: `..` and absolute paths are refused.
+Console.WriteLine(await skills.ReadResourceAsync("pdf", "references/forms.md"));
+```
+
+</TabItem>
+</Tabs>
+
+`renderSkillsPrompt` / `SkillPrompt.Render` produce the same text in both
+languages:
+
+```xml
+You have the following skills available. Each entry gives a skill's name and what it is for. When a task matches a skill, load that skill's full instructions by name before you act on the task.
+
+<available_skills>
+  <skill>
+    <name>brand-voice</name>
+    <description>Write customer-facing copy in the AimTune voice…</description>
+  </skill>
+  <skill>
+    <name>pdf</name>
+    <description>Fill, merge and read PDF forms. Use when…</description>
+  </skill>
+</available_skills>
+```
+
+Pass `{ intro: null }` / `intro: null` to render the block alone, or your own
+intro sentence to change what the model is told about it. An empty catalog
+renders `""`.
+
+### Several roots, inline skills
+
+`fromDirectories([sharedDir, projectDir])` reads roots in order and a later
+root's skill **replaces** an earlier one of the same name — project skills over
+shared ones. A folder without a `SKILL.md` is skipped; a folder *with* a
+malformed one throws, so a broken skill fails loudly instead of vanishing from
+the catalog.
+
+A catalog can also be built from objects — for tests, or for skills that live in
+a database rather than on disk:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { SkillCatalog } from "@ilmek/skills";
+
+const inline = new SkillCatalog([
+  { name: "brand-voice", description: "Write in the house voice.", instructions: "Short sentences.", resources: [] },
+]);
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek.Skills;
+
+var inline = new SkillCatalog(
+[
+    new Skill { Name = "brand-voice", Description = "Write in the house voice.", Instructions = "Short sentences." },
+]);
+```
+
+</TabItem>
+</Tabs>
+
+`SkillSource` / `ISkillSource` is the port a host reads through — `list()`,
+`get(name)`, `readResource(name, path)` — so a remote registry or a client's
+declarations can stand behind the same interface as a folder.
+
+## Skills as graph data
+
+A [stored graph spec](/graphs-as-data) never carries executable text, so a
+skill is referenced by name and resolved through the node registry at build
+time. `skillNodes(source)` / `SkillNodes.Registry(source)` adds two node types:
+
+| type | config | writes |
+|---|---|---|
+| `skill` | `{ skill, to? }` | the named skill's instructions to channel `to` (default `"instructions"`) |
+| `skills` | `{ to?, intro? }` | the level-1 catalog prompt to channel `to` |
+
+An unknown skill name fails when the graph is built, not mid-run.
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { END, fromSpec, run, START } from "@ilmek/core";
+import type { GraphSpec } from "@ilmek/core";
+import { SkillCatalog, skillNodes } from "@ilmek/skills";
+
+const skills = await SkillCatalog.fromDirectories(["./skills"]);
+
+/** The stored document: brief the agent with a skill, then answer. */
+const spec: GraphSpec = {
+  name: "briefed",
+  channels: { input: {}, system: {}, reply: {} },
+  nodes: [
+    { id: "brief", type: "skill", config: { skill: "brand-voice", to: "system" } },
+    { id: "answer", type: "echo", config: {} },
+  ],
+  edges: [
+    { from: START, to: "brief" },
+    { from: "brief", to: "answer" },
+    { from: "answer", to: END },
+  ],
+};
+
+const registry = {
+  ...skillNodes(skills),
+  // Stand-in for an LLM node: it reads the instructions the skill node wrote.
+  echo: () => (state: { input: string; system: string }) => ({ reply: `[${state.system}] ${state.input}` }),
+};
+
+const g = fromSpec(spec, registry).compile();
+const result = await run(g, { input: "Announce the release." }, { threadId: "t-1" });
+console.log(result.state?.reply);   // [Short sentences. No exclamation marks. …] Announce the release.
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+using Ilmek.Skills;
+
+var skills = await SkillCatalog.FromDirectoriesAsync("./skills");
+
+// The stored document: brief the agent with a skill, then answer.
+var spec = new GraphSpec
+{
+    Name = "briefed",
+    Channels = new Dictionary<string, SpecChannel> { ["input"] = new(), ["system"] = new(), ["reply"] = new() },
+    Nodes =
+    [
+        new SpecNode("brief", "skill", new Dictionary<string, object?> { ["skill"] = "brand-voice", ["to"] = "system" }),
+        new SpecNode("answer", "echo"),
+    ],
+    Edges = [new SpecEdge(Graph.Start, "brief"), new SpecEdge("brief", "answer"), new SpecEdge("answer", Graph.End)],
+};
+
+var registry = SkillNodes.Registry(skills);
+// Stand-in for an LLM node: it reads the instructions the skill node wrote.
+registry["echo"] = _ => (state, _) => new ValueTask<object?>(
+    Update.Of("reply", $"[{state.Get<string>("system")}] {state.Get<string>("input")}"));
+
+var g = Spec.FromSpec(spec, registry).Compile();
+var result = await g.RunAsync(Update.Of("input", "Announce the release."), new RunOptions { ThreadId = "t-1" });
+Console.WriteLine(result.State!.Get<string>("reply"));
+```
+
+</TabItem>
+</Tabs>
+
+## Conformance
+
+The folders under `conformance/skills/` are the shared fixture: both readers
+discover them, parse every `SKILL.md`, render the prompt, and compare with
+`expected.json` as canonical JSON. `expected.json` is generated once by the
+TypeScript reference (`node ts/packages/skills/scripts/gen-expected.ts --write`),
+hand-reviewed and committed; the .NET suite reruns it unchanged. A divergence
+between the two readers is a red test, not a model reading two different
+catalogs.

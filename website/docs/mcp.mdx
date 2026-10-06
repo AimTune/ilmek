@@ -1,0 +1,302 @@
+---
+id: mcp
+title: MCP
+sidebar_label: MCP
+sidebar_position: 8
+---
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+# MCP — Model Context Protocol servers as tools
+
+`@ilmek/mcp` and `Ilmek.Mcp` consume an [MCP](https://modelcontextprotocol.io)
+server from inside a graph: its **tools** become a model's tool list, every
+call is **journaled** so a pause/resume never re-invokes a remote tool, its
+**resources** are readable text, and its **prompts** become [skills](/skills).
+Two node types let a stored graph spec call a server by name.
+
+ilmek stays LLM-agnostic: nothing here calls a model. A host — [mekik](https://mekik.aimtune.dev),
+or your own agent loop — hands `toolbox.tools()` to a model and dispatches its
+calls to `toolbox.call(ctx, …)`. Both implementations are held to one result by
+the scripted server in [`conformance/mcp`](https://github.com/AimTune/ilmek/tree/main/conformance/mcp).
+
+## Install and connect
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```bash
+npm install @ilmek/core @ilmek/mcp @modelcontextprotocol/sdk
+```
+
+`@ilmek/mcp` has **zero dependencies**: its client port is duck-typed to the
+official SDK's `Client` (`listTools`, `callTool`, `listResources`,
+`readResource`, `listPrompts`, `getPrompt`), so a connected SDK client passes
+as-is.
+
+```ts
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { McpToolbox } from "@ilmek/mcp";
+
+const client = new Client({ name: "my-agent", version: "1.0.0" });
+await client.connect(new StdioClientTransport({ command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] }));
+
+const github = await McpToolbox.connect(client, { name: "github" });
+console.log(github.tools().map((t) => t.name));   // ["github__search_repositories", …]
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```bash
+dotnet add package Ilmek.Core
+dotnet add package Ilmek.Mcp
+dotnet add package ModelContextProtocol
+```
+
+`Ilmek.Mcp` has **no SDK dependency**: `IMcpClient` is a six-method interface
+you implement over the official client once — resources and prompts have
+default implementations, so a tools-only adapter is two methods:
+
+```csharp
+using Ilmek.Mcp;
+using ModelContextProtocol.Client;
+
+sealed class SdkClient(McpClient inner) : IMcpClient
+{
+    public async Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(CancellationToken ct = default) =>
+        (await inner.ListToolsAsync(cancellationToken: ct)).Select(t => new McpToolInfo
+        {
+            Name = t.Name,
+            Description = t.Description,
+            InputSchema = JsonSerializer.Deserialize<Dictionary<string, object?>>(t.JsonSchema.GetRawText()) ?? new(),
+        }).ToList();
+
+    public async Task<McpCallToolResult> CallToolAsync(string name, IReadOnlyDictionary<string, object?> arguments, CancellationToken ct = default)
+    {
+        var r = await inner.CallToolAsync(name, arguments.ToDictionary(kv => kv.Key, kv => kv.Value), cancellationToken: ct);
+        return new McpCallToolResult
+        {
+            Content = r.Content.Select(c => JsonSerializer.Deserialize<Dictionary<string, object?>>(JsonSerializer.Serialize(c))!).ToList(),
+            IsError = r.IsError ?? false,
+        };
+    }
+}
+
+var github = await McpToolbox.ConnectAsync(new SdkClient(client), new() { Name = "github" });
+Console.WriteLine(string.Join(", ", github.Tools().Select(t => t.Name)));   // github__search_repositories, …
+```
+
+</TabItem>
+</Tabs>
+
+`connect` lists the tools **once** and exposes them under a prefix — the server
+name plus `__` by default, so `search` on server `github` is `github__search`
+(letters, digits, `_` and `-` only, which is what model tool-name rules allow).
+`prefix: ""` exposes the raw names; `allow: [...]` keeps a subset.
+
+## Calling a tool — once
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { channel, END, graph, START } from "@ilmek/core";
+
+const g = graph("research")
+  .channel("query", channel.lastWrite<string>(""))
+  .channel("log", channel.append<string>())
+  .node("search", async (state, ctx) => {
+    // Journaled under `mcp:github:search`: on the resume pass after the
+    // interrupt below, the recorded result comes back and the server is
+    // not called again.
+    const hits = await github.call(ctx, "github__search", { q: state.query });
+    const ok = await ctx.interrupt<string>({ question: `Use ${hits.text}?` });
+    return { log: [hits.text, ok] };
+  })
+  .edge(START, "search").edge("search", END)
+  .compile();
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+var g = Graph.Create("research")
+    .Channel("query", Channels.LastWrite(""))
+    .Channel("log", Channels.Append())
+    .Node("search", async (State state, IContext ctx) =>
+    {
+        // Journaled under `mcp:github:search`: on the resume pass after the
+        // interrupt below, the recorded result comes back and the server is
+        // not called again.
+        var hits = await github.CallAsync(ctx, "github__search", new Dictionary<string, object?> { ["q"] = state.Get<string>("query") });
+        var ok = await ctx.InterruptAsync<string>(new { question = $"Use {hits.Text}?" });
+        return Update.Of("log", new List<object?> { hits.Text, ok });
+    })
+    .Edge(Graph.Start, "search").Edge("search", Graph.End)
+    .Compile();
+```
+
+</TabItem>
+</Tabs>
+
+The result is **normalized** to plain data — that is what the journal keeps:
+
+| field | meaning |
+|---|---|
+| `text` | every text block (and embedded text resource) joined with newlines; `""` when there is none |
+| `structured` | the server's `structuredContent`, when it returned one |
+| `isError` | the server flagged the result as an error — the tool ran; it failed |
+| `content` | the raw blocks, for images, audio, resource links |
+
+`call` uses the journal key `mcp:<server>:<tool>`; pass `{ key }` / `key:` when a
+node calls the same tool twice with different arguments. `invoke` is the raw,
+unjournaled call, for a host that journals on its own (mekik's `mekik.tool`
+does).
+
+## Resources and prompts
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+const uris = (await github.resources()).map((r) => r.uri);
+const readme = await github.readResource(ctx, "file:///README.md");      // journaled
+const review = await github.prompt(ctx, "code-review", { pr: "42" });    // journaled, rendered to text
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+var uris = (await github.ResourcesAsync()).Select(r => r.Uri);
+var readme = await github.ReadResourceAsync(ctx, "file:///README.md");   // journaled
+var review = await github.PromptAsync(ctx, "code-review", new Dictionary<string, string> { ["pr"] = "42" });
+```
+
+</TabItem>
+</Tabs>
+
+A resource reads as the text of its contents; a prompt renders as its messages'
+text blocks, messages separated by a blank line. A server that advertises
+neither lists none, and fetching throws.
+
+### Prompts as skills
+
+A prompt is a named, described piece of instruction — exactly a
+[skill](/skills)'s level 1 and 2. `mcpSkills` / `McpSkills.FromPromptsAsync`
+turns a toolbox's prompts into skills a catalog can hold:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { SkillCatalog } from "@ilmek/skills";
+import { mcpSkills } from "@ilmek/mcp";
+
+const skills = new SkillCatalog([...(await discoverSkills("./skills")), ...(await mcpSkills(github))]);
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek.Skills;
+using Ilmek.Mcp;
+
+var fromMcp = (await McpSkills.FromPromptsAsync(github)).Select(s => new Skill
+{
+    Name = s.Name, Description = s.Description, Instructions = s.Instructions, Metadata = s.Metadata,
+});
+var skills = new SkillCatalog((await SkillLoader.DiscoverAsync("./skills")).Concat(fromMcp));
+```
+
+</TabItem>
+</Tabs>
+
+Names are coerced to the skill name rule and prefixed with the server name
+(`github-code-review`). A prompt with **no required arguments** is fetched once
+and its text becomes the instructions; a prompt that needs arguments cannot be
+fetched blind, so its instructions list the arguments and how to fetch it —
+the model still learns it exists. `metadata` carries `server`, `prompt` and
+`arguments`.
+
+## MCP as graph data
+
+A [stored graph spec](/graphs-as-data) never carries executable text, so a
+server and a tool are referenced by name and resolved through the node registry
+at build time. `mcpNodes(toolboxes)` / `McpNodes.Registry(toolboxes)` adds two
+node types:
+
+| type | config | does |
+|---|---|---|
+| `mcp_tool` | `{ server, tool, arguments?, argumentsFrom?, to?, text? }` | calls `tool` (the exposed name) with `arguments` merged under the object in channel `argumentsFrom`, journaled; writes the result — or just its `text` — to channel `to` (default `"result"`) |
+| `mcp_resource` | `{ server, uri, to? }` | reads the resource's text, journaled, into channel `to` |
+
+An unknown server or tool fails when the graph is built, not mid-run.
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { END, fromSpec, run, START } from "@ilmek/core";
+import type { GraphSpec } from "@ilmek/core";
+import { mcpNodes } from "@ilmek/mcp";
+
+const spec: GraphSpec = {
+  name: "search",
+  channels: { query: {}, hits: {} },
+  nodes: [
+    { id: "search", type: "mcp_tool", config: { server: "github", tool: "github__search", argumentsFrom: "query", to: "hits", text: true } },
+  ],
+  edges: [{ from: START, to: "search" }, { from: "search", to: END }],
+};
+
+const g = fromSpec(spec, mcpNodes({ github })).compile();
+const result = await run(g, { query: { q: "ilmek" } }, { threadId: "t-1" });
+console.log(result.state?.hits);
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+using Ilmek.Mcp;
+
+var spec = new GraphSpec
+{
+    Name = "search",
+    Channels = new Dictionary<string, SpecChannel> { ["query"] = new(), ["hits"] = new() },
+    Nodes =
+    [
+        new SpecNode("search", "mcp_tool", new Dictionary<string, object?>
+        {
+            ["server"] = "github", ["tool"] = "github__search", ["argumentsFrom"] = "query", ["to"] = "hits", ["text"] = true,
+        }),
+    ],
+    Edges = [new SpecEdge(Graph.Start, "search"), new SpecEdge("search", Graph.End)],
+};
+
+var g = Spec.FromSpec(spec, McpNodes.Registry(new Dictionary<string, McpToolbox> { ["github"] = github })).Compile();
+var result = await g.RunAsync(
+    new Dictionary<string, object?> { ["query"] = new Dictionary<string, object?> { ["q"] = "ilmek" } },
+    new RunOptions { ThreadId = "t-1" });
+Console.WriteLine(result.State!.Get<string>("hits"));
+```
+
+</TabItem>
+</Tabs>
+
+## Conformance
+
+[`conformance/mcp/server.json`](https://github.com/AimTune/ilmek/tree/main/conformance/mcp)
+scripts an MCP server; both implementations build a fake client from it,
+connect a toolbox, invoke every tool, read a resource and derive the skills,
+and compare the result with `expected.json` as canonical JSON. Journaling and
+the node types are asserted inline in each suite.
