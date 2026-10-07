@@ -20,13 +20,31 @@ public sealed class Channel
     }
 
     public string Kind { get; }
-    public object? Default { get; }
+
+    /// <summary>
+    /// The value an unwritten channel reads as. For the built-in collection
+    /// reducers (append, merge) every read is a fresh empty collection: one shared
+    /// instance would let a node that mutates <c>state["log"]</c> in place, instead
+    /// of returning an update, corrupt the default for every later run in the
+    /// process (the TypeScript reference freezes its defaults for the same reason).
+    /// </summary>
+    public object? Default => _defaultFactory is null ? _default : _defaultFactory();
+
+    private readonly object? _default;
+    private readonly Func<object?>? _defaultFactory;
     private readonly Func<object?, object?, object?> _reduce;
 
     public Channel(string kind, object? @default, Func<object?, object?, object?> reduce)
     {
         Kind = kind;
-        Default = @default;
+        _default = @default;
+        _reduce = reduce;
+    }
+
+    internal Channel(string kind, Func<object?> defaultFactory, Func<object?, object?, object?> reduce)
+    {
+        Kind = kind;
+        _defaultFactory = defaultFactory;
         _reduce = reduce;
     }
 
@@ -36,6 +54,12 @@ public sealed class Channel
         try
         {
             return _reduce(current, incoming);
+        }
+        catch (ReducerException ex)
+        {
+            // A built-in reducer's own refusal: attach the channel name so the
+            // error says which write failed.
+            throw new ReducerException($"channel \"{name}\": {ex.Message}", ex.InnerException);
         }
         catch (Exception ex) when (ex is not ReducerException)
         {
@@ -62,13 +86,24 @@ public static class Channels
 
     /// <summary>List concat. Holds a list; accepts one item or many.</summary>
     public static Channel Append() =>
-        new("append", new List<object?>(), (current, incoming) =>
+        new("append", () => new List<object?>(), (current, incoming) =>
         {
-            var list = current is List<object?> existing ? new List<object?>(existing) : new List<object?>();
+            var list = current switch
+            {
+                null => new List<object?>(),
+                _ when ReferenceEquals(current, Channel.Unset) => new List<object?>(),
+                IEnumerable items when current is not string && !IsMap(current) => items.Cast<object?>().ToList(),
+                // The TS reference's concat throws on a non-list current; quietly
+                // starting a fresh list here would drop the channel's history.
+                _ => throw new ReducerException(
+                    $"append holds a list, but the channel's current value is {current.GetType().Name}"),
+            };
             // Mirror the TS rule: an enumerable splats, anything else appends as
             // one item. Strings are enumerable in .NET and must NOT splat into
             // characters — that is the whole reason for the explicit exclusion.
-            if (incoming is IEnumerable seq && incoming is not string)
+            // A dictionary is one value too (MODEL.md §2: `List.wrap(map)` is
+            // `[map]`); splatting it would append its KeyValuePairs instead.
+            if (incoming is IEnumerable seq && incoming is not string && !IsMap(incoming))
             {
                 foreach (var item in seq) list.Add(item);
             }
@@ -79,9 +114,15 @@ public static class Channels
             return list;
         });
 
+    private static bool IsMap(object value) =>
+        value is IDictionary
+        || value.GetType().GetInterfaces().Any(i => i.IsGenericType
+            && (i.GetGenericTypeDefinition() == typeof(IDictionary<,>)
+                || i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)));
+
     /// <summary>Shallow dictionary merge, <c>incoming</c> wins per key.</summary>
     public static Channel Merge() =>
-        new("merge", new Dictionary<string, object?>(), (current, incoming) =>
+        new("merge", () => new Dictionary<string, object?>(),(current, incoming) =>
         {
             var merged = current is IReadOnlyDictionary<string, object?> existing
                 ? new Dictionary<string, object?>(existing.ToDictionary(kv => kv.Key, kv => kv.Value))
