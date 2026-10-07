@@ -2,7 +2,9 @@
 
 Call [Agent2Agent](https://a2a-protocol.org) agents from an
 [ilmek](https://github.com/AimTune/ilmek) graph — every round-trip journaled,
-so a pause/resume never re-sends a message the remote agent already acted on.
+so a pause/resume never re-sends a message the remote agent already acted on, on
+any checkpointer (a replayed `SendAsync` is a typed `A2aResult` after a SQLite
+reload too).
 No third-party dependencies: the transport is a two-method interface and the
 HTTP one rides `HttpClient`.
 

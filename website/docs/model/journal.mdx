@@ -232,15 +232,23 @@ class instances or `undefined` fields.
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
-`InMemoryCheckpointer` keeps the CLR object itself, but a durable checkpointer
-hands a journaled value back in its **JSON shape** — `Dictionary<string, object?>`,
-`List<object?>`, `string`, `long`/`double`, `bool` or `null` — and `StepAsync<T>`
-casts the recorded value to `T`. So a step that returns a record, a tuple or a
-`decimal` works in memory but fails with `InvalidCastException` on the resume
-pass once its journal has been read back from SQLite. With a durable
-checkpointer, return one of those JSON shapes from a step and rebuild richer
-objects from it. The same applies to an interrupt answer read with
-`InterruptAsync<T>`.
+`InMemoryCheckpointer` keeps the CLR object itself, and replay hands back that
+same instance. A durable checkpointer stores the journal as JSON and reads it
+back as plain data — `Dictionary<string, object?>`, `List<object?>`, `string`,
+`long`/`double` (`decimal` when a double would round the number), `bool` or
+`null`. `StepAsync<T>` and `InterruptAsync<T>` convert that data back to `T` with
+System.Text.Json and the options the checkpointer wrote it with
+(`JournalJson.Options`), so a step can return a record, a value tuple, a
+`decimal` (exact, scale included), an enum, a `DateTimeOffset` or a list of
+records and get the same value on the resume pass. The conversion is
+culture-invariant.
+
+What does not survive is whatever System.Text.Json cannot write and read back:
+a type with no public constructor or setters it can bind, or an untyped member
+that held a custom type (an `object`-typed property comes back as plain data).
+Return a JSON-friendly shape from those steps. An answer or recorded value that
+cannot become `T` fails the node with an `InvalidCastException` naming the
+journal key.
 
 </TabItem>
 </Tabs>

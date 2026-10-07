@@ -71,15 +71,15 @@ The tests prove the claim that matters: a pause written by one connection is
 answered by another after the file is closed and reopened, **and the effect
 before that pause does not re-run**.
 
-One .NET-specific constraint, enforced by the decoder and worth knowing: values
-cross the file boundary as JSON, so they come back as plain CLR data —
-`Dictionary<string, object?>`, `List<object?>`, `string`, `long`/`double`, `bool`,
-`null`. A custom type journaled into a step or written to a channel returns as its
-JSON shape. Journal what serializes (ids, strings, numbers) and re-resolve richer
-objects from it — the same rule MODEL.md §5.4 already states. `StepAsync<T>` casts
-the recorded value to `T`, so a step that returns a record or a tuple replays
-from `InMemoryCheckpointer` but fails with `InvalidCastException` once its
-journal has been read back from SQLite.
+Values cross the file boundary as JSON, so state comes back as plain CLR data —
+`Dictionary<string, object?>`, `List<object?>`, `string`, `long`/`double`
+(`decimal` when a double would round), `bool`, `null`; a custom type written to a
+channel returns as its JSON shape. Typed steps and answers do not: `StepAsync<T>`
+and `InterruptAsync<T>` convert the replayed value back to `T` through
+`JournalJson` (the same System.Text.Json options the checkpointer writes with),
+so a record, a value tuple, an exact `decimal`, an enum or a list of records
+replays from SQLite just as it does from `InMemoryCheckpointer` — which returns
+the very instance the step produced.
 
 Targets `net9.0`. No SDK on the machine? `curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0`
 installs to `~/.dotnet` without admin rights.

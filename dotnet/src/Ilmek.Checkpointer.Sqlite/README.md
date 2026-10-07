@@ -17,5 +17,6 @@ var done = await graph.ResumeAsync("yes", new RunOptions { ThreadId = "t1", Chec
 
 `SqliteCheckpointerOptions` sets `TablePrefix` (default `"ilmek"`, must be a plain
 SQL identifier) and `Wal` (default `true`); `new SqliteCheckpointer(connection)`
-uses a connection you own. Values come back from the file in their JSON shape —
-see <https://ilmek.aimtune.dev/checkpointers/sqlite>.
+uses a connection you own. State comes back from the file as plain JSON-shaped
+data; a typed `StepAsync<T>` / `InterruptAsync<T>` converts its replayed value
+back to `T` — see <https://ilmek.aimtune.dev/model/journal#serializable-values>.

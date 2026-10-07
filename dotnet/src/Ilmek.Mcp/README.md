@@ -2,7 +2,8 @@
 
 Model Context Protocol servers as [ilmek](https://github.com/AimTune/ilmek)
 tools, resources and skills — every call journaled, so a pause/resume never
-re-invokes a remote tool. No SDK dependency: `IMcpClient` is a six-method
+re-invokes a remote tool, on any checkpointer (a replayed `CallAsync` is a typed
+`McpToolResult` after a SQLite reload too). No SDK dependency: `IMcpClient` is a six-method
 interface you implement over the official `ModelContextProtocol` client in a
 few lines (see the docs), or over a fake in tests.
 

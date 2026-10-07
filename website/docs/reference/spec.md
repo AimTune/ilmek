@@ -54,6 +54,7 @@ The same concepts, spelled to each language's idiom (MODEL.md §11):
 | retry | `.node(id, fn, { retry: {...} })` | `.Node(id, fn, retry: new RetryPolicy {...})` |
 | open pauses / thread state | `pendingInterrupts(cp, threadId)` · `threadState(g, cp, threadId)` | `IlmekRuntime.PendingInterruptsAsync(cp, threadId)` · `IlmekRuntime.ThreadStateAsync(g, cp, threadId)` |
 | checkpointer | `interface Checkpointer` | `interface ICheckpointer` |
+| journaled-value JSON | `JSON` (plain data) | `JournalJson.Options` · `JournalJson.ToPlain` · `JournalJson.ConvertTo<T>` |
 | spec round-trip | `fromSpec(spec, registry)` · `toSpec(g)` | `Spec.FromSpec(spec, registry)` · `Spec.ToSpec(g)` |
 | cancellation | `AbortSignal` → `ctx.signal` | `CancellationToken` → `ctx.CancellationToken` |
 | errors | `GraphError`, `ResumeError`, `NondeterminismError`, … | `GraphException`, `ResumeException`, `NondeterminismException`, … |

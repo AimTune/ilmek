@@ -248,7 +248,7 @@ a mid-stream cancel.
 
 Green against the [conformance](conformance/) list in both languages
 (`cd ts && pnpm check`, `cd dotnet && dotnet test Ilmek.sln`). Known limitations — concurrent resumes of one
-pause, `:` in pending ids, Postgres and U+0000, and a few .NET specifics — are
+pause, `:` in pending ids, Postgres and U+0000, and a wrongly typed answer in .NET — are
 listed in the docs under
 [Interrupts → Known limitations](https://ilmek.aimtune.dev/model/interrupts#known-limitations).
 

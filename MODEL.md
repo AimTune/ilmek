@@ -202,6 +202,14 @@ Journaled values MUST survive a serializer round-trip: what a step returns on a
 fresh call and what it returns from the journal MUST be equal. A step returning
 a PID, socket, or stream handle violates this — return an id and re-resolve it.
 
+A durable checkpointer hands the journal back as JSON-shaped data, not the
+objects that went in. A port with typed step and interrupt accessors (.NET's
+`StepAsync<T>` / `InterruptAsync<T>`) MUST convert a replayed value back to the
+requested type with the same serializer settings the checkpointer writes with,
+exactly (a `decimal` keeps its value and scale) and culture-invariantly; a
+value that already has the type — every value an in-memory journal holds — is
+returned as is.
+
 ### 5.5 Strict mode
 
 When enabled (the default: `strict: true`), the engine records the keys a task
@@ -423,12 +431,14 @@ from day one, not a later feature, because retrofitting it is expensive.
   registered ones. The engine cannot tell the difference.
 * `when` in a stored spec is a **declarative predicate**, not code — a stored
   graph must never carry executable text. Code-defined graphs may pass a real
-  function; the spec serializer refuses to emit one.
+  function; the spec serializer refuses to emit one. An operator is present when
+  its key is: `{ channel, eq: null }` tests for `null`; it is not "no operator".
 * Round-trip is a conformance test: `compile(spec) |> to_spec() == spec`.
 * A spec is a stored document, so building from it validates its shape: an
   unknown node type, an unknown reducer, a predicate on an undeclared channel or
-  with no known operator, a missing type — each raises `GraphError` naming the
-  bad part, never a raw type error from inside the builder.
+  with no known operator, a missing type, a spec, node or edge that is not an
+  object, a missing or empty node id — each raises `GraphError` naming the bad
+  part, never a raw type or null-reference error from inside the builder.
 
 The drag-and-drop builder is therefore a CRUD app over this document plus a
 registry browser. Nothing in the engine knows it exists.

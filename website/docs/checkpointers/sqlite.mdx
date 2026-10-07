@@ -160,8 +160,9 @@ var cp = new SqliteCheckpointer(connection);
 </TabItem>
 </Tabs>
 
-Values cross the file boundary as JSON. In .NET they come back as plain CLR data
-— see [Serializable values](/model/journal#serializable-values).
+Values cross the file boundary as JSON. In .NET, state comes back as plain CLR
+data, while a typed `StepAsync<T>` / `InterruptAsync<T>` converts its replayed
+value back to `T` — see [Serializable values](/model/journal#serializable-values).
 
 ## When to reach for Postgres instead
 

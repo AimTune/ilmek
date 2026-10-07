@@ -33,8 +33,7 @@ npm install @ilmek/core @ilmek/mcp @modelcontextprotocol/sdk
 `@ilmek/mcp` has **zero dependencies**: its client port is duck-typed to the
 official SDK's `Client` (`listTools`, `callTool`, `listResources`,
 `readResource`, `listPrompts`, `getPrompt`), so a connected SDK client passes
-as-is. (With `exactOptionalPropertyTypes` on, the SDK's `description?: string |
-undefined` fields don't match — pass `client as McpClientLike`.)
+as-is, with no cast — `exactOptionalPropertyTypes` included.
 
 ```ts
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -155,6 +154,9 @@ The result is **normalized** to plain data — that is what the journal keeps:
 | `structured` | the server's `structuredContent`, when it returned one |
 | `isError` | the server flagged the result as an error — the tool ran; it failed |
 | `content` | the raw blocks, for images, audio, resource links |
+
+On a resume the recorded result comes back the same on any checkpointer: in
+.NET, `CallAsync` returns a typed `McpToolResult` after a SQLite reload too.
 
 `call` uses the journal key `mcp:<server>:<tool>`; pass `{ key }` / `key:` when a
 node calls the same tool twice with different arguments. `invoke` is the raw,

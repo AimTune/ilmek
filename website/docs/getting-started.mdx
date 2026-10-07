@@ -223,8 +223,7 @@ var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 `InMemoryCheckpointer` is enough to feel the model. For a pause that survives a
 process restart, swap it for [SQLite](/checkpointers/sqlite) or
 [Postgres](/checkpointers/postgres) (TypeScript only, for now) — the graph code
-stays the same. In .NET, a durable checkpointer hands journaled values back in
-their JSON shape, so keep step results JSON-shaped there — see
+stays the same, as long as step results survive a JSON round-trip — see
 [Serializable values](/model/journal#serializable-values). And
 *resume from the line* means exactly this: not a restored call stack, but **an
 effect that cannot happen twice**.

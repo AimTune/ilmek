@@ -356,6 +356,3 @@ Documented rather than fixed — know them before you build on them:
   answer's type before resuming with it.
 - **Postgres cannot store U+0000** in a payload, answer or step value — see the
   [Postgres checkpointer](/checkpointers/postgres#values-postgres-cannot-store).
-- **.NET: typed step results with a durable checkpointer.** A step that returns
-  a record or tuple replays fine from `InMemoryCheckpointer` but not from SQLite —
-  see [Serializable values](/model/journal#serializable-values).

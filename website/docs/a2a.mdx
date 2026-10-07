@@ -148,6 +148,9 @@ The result is **normalized** to plain data — that is what the journal keeps:
 | `needsInput` | `state === "input-required"` |
 | `task` | the task, verbatim |
 
+On a resume the recorded result comes back the same on any checkpointer: in
+.NET, `SendAsync` returns a typed `A2aResult` after a SQLite reload too.
+
 `send` takes `contextId` to continue a remote conversation, `taskId` to answer a
 paused task, `data` for a data part (a mekik agent with several open pauses
 wants `{ answers: { <id>: <answer> } }`), and `key` to separate two sends in one

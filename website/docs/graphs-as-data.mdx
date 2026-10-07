@@ -121,20 +121,31 @@ A stored edge's `when` names one declared channel and exactly one operator:
 
 Numbers compare by value in both languages, so `3` in a document matches a
 channel holding `3.0` — or a `long` read back from SQLite in .NET. Equality is by
-value for strings, numbers and booleans; compare objects by a field instead. In
-.NET a `null` operand counts as "not set", so `{ channel, eq: null }` is refused
-as having no operator there — test for absence with `truthy: false` instead.
+value for strings, numbers and booleans; compare objects by a field instead.
+`null` is a value like any other: `{ channel, eq: null }` is taken when the
+channel holds `null`, `neq: null` when it holds anything else, and `in` may list
+`null` (in .NET, `Eq = null` / `Neq = null` count as set). One difference
+remains: TypeScript has `undefined`, so a channel nobody has written is not
+`null` there and `eq: null` does not match it; .NET has no `undefined`, so an
+unwritten channel *is* `null` and does match. To test for "no value" the same way
+in both, use `truthy: false`.
+
+In .NET, `SpecPredicate` serializes with System.Text.Json to the same document
+shape — only the operators that are set, so `Eq = null` survives and an unset
+operator stays out — and reads TypeScript's camelCase keys (`"eq"`) as well as
+its own (`"Eq"`), with operand values as plain data that compare like channel
+values.
 
 ## Malformed specs fail loudly
 
 A spec is a stored document, so `fromSpec` checks its shape instead of trusting
 it, and every problem is a `GraphError` (`GraphException` in .NET) that names the
-bad part — never a `TypeError` from deep inside the builder:
+bad part — never a `TypeError` (or a `NullReferenceException`) from deep inside
+the builder. Both languages refuse the same cases with the same messages:
 
 - a node without a `type`, or a duplicate node or channel name;
-- in TypeScript also a spec, node or edge that is not an object, and a node
-  without an `id` (in .NET those surface as the runtime's own
-  `NullReferenceException` / `ArgumentNullException`);
+- a spec, channel config, node or edge that is not an object (`null` in .NET),
+  and a node `id` or channel name that is missing or empty;
 - a `type` the registry does not hold (the message lists the known types), or a
   registry entry that does not return a node function;
 - a channel `reducer` other than `last_write`, `append` or `merge`;

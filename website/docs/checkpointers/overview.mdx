@@ -135,6 +135,12 @@ and the durable backends pass it; run a new backend against the same suite.
 SQL backends should match the journal prefixes with `substr`/`starts-with`
 rather than `LIKE`, since a thread id may contain `%` or `_`.
 
+A .NET backend that stores values as JSON should write them with
+`JournalJson.Serialize` (or `JournalJson.Options`) and lower what it reads with
+`JournalJson.ToPlain`, as the SQLite checkpointer does. Typed steps then convert
+the replayed data back with those same options; a backend may also hand back raw
+`JsonElement`s, which convert the same way.
+
 :::note ilmek checkpoints are ilmek's own
 They hold engine state — channels, journals, and pending pauses — not a host's
 transcript or conversation store, which a host keeps independently.
@@ -149,5 +155,5 @@ transcript or conversation store, which a host keeps independently.
 | [`@ilmek/checkpoint-postgres`](/checkpointers/postgres) | Postgres | threads shared across processes | TS ✅ · .NET ⬜ |
 
 `InMemoryCheckpointer` is enough to feel the model. Swap in SQLite or Postgres
-and the graph code stays the same — in .NET, as long as step results are
-[JSON-shaped](/model/journal#serializable-values).
+and the graph code stays the same, as long as step results survive a
+[JSON round-trip](/model/journal#serializable-values).
