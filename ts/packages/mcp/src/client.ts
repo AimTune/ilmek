@@ -9,53 +9,53 @@
 /** One tool a server advertises (`tools/list`). `inputSchema` is JSON Schema. */
 export interface McpToolInfo {
     readonly name: string;
-    readonly description?: string;
+    readonly description?: string | undefined;
     readonly inputSchema: Record<string, unknown>;
 }
 
 /** One block of a tool result's `content`. Only the fields ilmek reads are typed; the rest passes through. */
 export interface McpContent {
     readonly type: string;
-    readonly text?: string;
-    readonly data?: string;
-    readonly mimeType?: string;
-    readonly uri?: string;
-    readonly resource?: { readonly uri: string; readonly text?: string; readonly blob?: string; readonly mimeType?: string };
+    readonly text?: string | undefined;
+    readonly data?: string | undefined;
+    readonly mimeType?: string | undefined;
+    readonly uri?: string | undefined;
+    readonly resource?: { readonly uri: string; readonly text?: string | undefined; readonly blob?: string | undefined; readonly mimeType?: string | undefined } | undefined;
     readonly [key: string]: unknown;
 }
 
 /** The raw `tools/call` result. */
 export interface McpCallToolResult {
-    readonly content?: readonly McpContent[];
-    readonly structuredContent?: Record<string, unknown>;
-    readonly isError?: boolean;
+    readonly content?: readonly McpContent[] | undefined;
+    readonly structuredContent?: Record<string, unknown> | undefined;
+    readonly isError?: boolean | undefined;
     readonly [key: string]: unknown;
 }
 
 export interface McpResourceInfo {
     readonly uri: string;
-    readonly name?: string;
-    readonly description?: string;
-    readonly mimeType?: string;
+    readonly name?: string | undefined;
+    readonly description?: string | undefined;
+    readonly mimeType?: string | undefined;
 }
 
 export interface McpResourceContents {
     readonly uri: string;
-    readonly mimeType?: string;
-    readonly text?: string;
-    readonly blob?: string;
+    readonly mimeType?: string | undefined;
+    readonly text?: string | undefined;
+    readonly blob?: string | undefined;
 }
 
 export interface McpPromptArgument {
     readonly name: string;
-    readonly description?: string;
-    readonly required?: boolean;
+    readonly description?: string | undefined;
+    readonly required?: boolean | undefined;
 }
 
 export interface McpPromptInfo {
     readonly name: string;
-    readonly description?: string;
-    readonly arguments?: readonly McpPromptArgument[];
+    readonly description?: string | undefined;
+    readonly arguments?: readonly McpPromptArgument[] | undefined;
 }
 
 export interface McpPromptMessage {
@@ -64,7 +64,7 @@ export interface McpPromptMessage {
 }
 
 export interface McpGetPromptResult {
-    readonly description?: string;
+    readonly description?: string | undefined;
     readonly messages: readonly McpPromptMessage[];
 }
 
