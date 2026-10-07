@@ -42,6 +42,26 @@ nodes received the same answer. **Nothing raised.** A conformance list is worth
 exactly the failures it has caught — this is the one that earned the
 [`id` vs `key` rule](/model/interrupts#id-vs-key).
 
+## Shared fixtures and contracts
+
+Beyond the scenario list, the two implementations are held to one result by
+shared data:
+
+| what | fixture | both suites compare against |
+|---|---|---|
+| Skills reader | the folders in [`conformance/skills`](https://github.com/AimTune/ilmek/tree/main/conformance/skills) | `skills/expected.json` |
+| MCP toolbox | the scripted server in [`conformance/mcp`](https://github.com/AimTune/ilmek/tree/main/conformance/mcp) | `mcp/expected.json` |
+| A2A client | the scripted agent in [`conformance/a2a`](https://github.com/AimTune/ilmek/tree/main/conformance/a2a) | `a2a/expected.json` |
+
+Each `expected.json` is generated once by the TypeScript reference, reviewed and
+committed; the .NET suite reruns it unchanged.
+
+The checkpointers also pass a shared **checkpointer contract** — the MODEL.md
+§7 claims as a test suite (`ts/packages/checkpointers/*/test/contract.ts`,
+`dotnet/test/Ilmek.Core.Tests/CheckpointerContract.cs`): SQLite in both
+languages (in memory and on a file), Postgres in TypeScript through PGlite
+(in-process Postgres), and the in-memory checkpointer in .NET.
+
 ## Status
 
 Green against the list in both languages: TypeScript and .NET. See the
