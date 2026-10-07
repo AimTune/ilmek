@@ -209,7 +209,31 @@ public sealed class SkillResourceSecurityTests : IDisposable
             "could not create a directory link or junction");
         var cat = await Catalog();
         Assert.Equal("inside", await cat.ReadResourceAsync("pdf", "alias/forms.md"));
-        Assert.Contains("alias/forms.md", cat.Get("pdf")!.Resources);
+        // Each real directory is listed once, under its real path (as in TS).
+        Assert.Equal(new[] { "references/forms.md" }, cat.Get("pdf")!.Resources);
+    }
+
+    [Fact(DisplayName = "a link reached before its real directory is still listed once, by its real path")]
+    public async Task RealPathWinsRegardlessOfOrder()
+    {
+        // "a-alias" sorts and enumerates before "z-real"; the real path still wins.
+        var real = Path.Combine(_skillDir, "z-real");
+        Directory.CreateDirectory(real);
+        File.WriteAllText(Path.Combine(real, "doc.md"), "real");
+        Assert.True(TryLinkDirectory(Path.Combine(_skillDir, "a-alias"), real), "could not create a directory link or junction");
+
+        var skill = await SkillLoader.LoadAsync(_skillDir);
+        Assert.Contains("z-real/doc.md", skill.Resources);
+        Assert.DoesNotContain("a-alias/doc.md", skill.Resources);
+    }
+
+    [Fact(DisplayName = "a dangling link is skipped by the resource walk")]
+    public async Task DanglingLinkSkipped()
+    {
+        Assert.True(TryLinkDirectory(Path.Combine(_skillDir, "ghost"), Path.Combine(_skillDir, "not-there")),
+            "could not create a directory link or junction");
+        var skill = await SkillLoader.LoadAsync(_skillDir);
+        Assert.Equal(new[] { "references/forms.md" }, skill.Resources);
     }
 
     [Fact(DisplayName = "a link to the skill folder itself cannot loop the resource walk")]
