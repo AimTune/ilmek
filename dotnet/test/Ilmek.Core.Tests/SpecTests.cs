@@ -194,6 +194,143 @@ public class SpecTests
         Assert.Contains("reserved", Assert.Throws<GraphException>(() => Spec.FromSpec(reserved, Registry)).Message);
     }
 
+    // ── malformed documents: the TS case table (boundaries.test.ts) ───────────
+    //
+    // A spec is a stored document, so a JSON deserializer can hand FromSpec nulls
+    // the record annotations rule out. Each must be a GraphException naming the
+    // bad part, with the TS message — never a NullReferenceException or
+    // ArgumentNullException from inside the builder.
+
+    private static GraphSpec Base() => new()
+    {
+        Name = "doc",
+        Channels = new Dictionary<string, SpecChannel> { ["intent"] = new("last_write") },
+        Nodes = new List<SpecNode> { new("a", "say") },
+        Edges = new List<SpecEdge> { new(Graph.Start, "a") },
+    };
+
+    private static string Refused(Func<object> build) => Assert.Throws<GraphException>(() => build()).Message;
+
+    [Fact(DisplayName = "a null spec is a GraphException")]
+    public void NullSpec() =>
+        Assert.Equal("a graph spec must be an object, got null", Refused(() => Spec.FromSpec(null!, Registry)));
+
+    [Fact(DisplayName = "a channel config that is null is a GraphException naming the channel")]
+    public void NullChannelConfig() =>
+        Assert.Contains("channel \"intent\": config must be an object, got null",
+            Refused(() => Spec.FromSpec(Base() with { Channels = new Dictionary<string, SpecChannel> { ["intent"] = null! } }, Registry)));
+
+    [Fact(DisplayName = "a channel with no reducer named defaults to last_write")]
+    public void NullReducerDefaultsToLastWrite()
+    {
+        var g = Spec.FromSpec(Base() with { Channels = new Dictionary<string, SpecChannel> { ["intent"] = new(null!) } }, Registry).Compile();
+        Assert.Equal("last_write", Spec.ToSpec(g).Channels["intent"].Reducer);
+    }
+
+    [Fact(DisplayName = "a node that is null is a GraphException")]
+    public void NullNode() =>
+        Assert.Contains("spec node must be an object", Refused(() => Spec.FromSpec(Base() with { Nodes = new List<SpecNode> { null! } }, Registry)));
+
+    [Theory(DisplayName = "a node with no id is a GraphException")]
+    [InlineData(null, "node name must be a non-empty string, got null")]
+    [InlineData("", "node name must be a non-empty string, got \"\"")]
+    public void NodeWithoutId(string? id, string message) =>
+        Assert.Contains(message, Refused(() => Spec.FromSpec(Base() with { Nodes = new List<SpecNode> { new(id!, "say") } }, Registry)));
+
+    [Fact(DisplayName = "a channel with an empty name is a GraphException")]
+    public void ChannelWithEmptyName() =>
+        Assert.Contains("channel name must be a non-empty string, got \"\"",
+            Refused(() => Spec.FromSpec(Base() with { Channels = new Dictionary<string, SpecChannel> { [""] = new("append") } }, Registry)));
+
+    [Fact(DisplayName = "an edge that is null is a GraphException")]
+    public void NullEdge() =>
+        Assert.Contains("spec edge must be an object", Refused(() => Spec.FromSpec(Base() with { Edges = new List<SpecEdge> { null! } }, Registry)));
+
+    [Fact(DisplayName = "an edge with a null end fails at compile, naming it")]
+    public void EdgeWithNullEnds()
+    {
+        Assert.Contains("edge from unknown node null",
+            Refused(() => Spec.FromSpec(Base() with { Edges = new List<SpecEdge> { new(Graph.Start, "a"), new(null!, "a") } }, Registry).Compile()));
+        Assert.Contains("edge \"a\" -> unknown node null",
+            Refused(() => Spec.FromSpec(Base() with { Edges = new List<SpecEdge> { new(Graph.Start, "a"), new("a", null!) } }, Registry).Compile()));
+    }
+
+    [Fact(DisplayName = "a null registry entry is \"not in the registry\", not a NullReferenceException")]
+    public void NullRegistryEntry() =>
+        Assert.Contains("not in the registry",
+            Refused(() => Spec.FromSpec(Base(), new Dictionary<string, NodeBuilder> { ["say"] = null! })));
+
+    [Fact(DisplayName = "a predicate with no channel is malformed")]
+    public void PredicateWithoutChannelIsMalformed() =>
+        Assert.Contains("is malformed",
+            Refused(() => Spec.FromSpec(Base() with { Edges = new List<SpecEdge> { new(Graph.Start, "a", new SpecPredicate { Channel = null!, Eq = 1 }) } }, Registry)));
+
+    [Fact(DisplayName = "a document missing channels, nodes and edges builds an empty builder that will not compile")]
+    public void MissingCollections() =>
+        Assert.Contains("no entry edge",
+            Refused(() => Spec.FromSpec(new GraphSpec { Name = null, Channels = null!, Nodes = null!, Edges = null! }, Registry).Compile()));
+
+    // ── eq / neq with null — a valid predicate, as in TS (`"eq" in pred`) ─────
+
+    [Fact(DisplayName = "Eq = null is a predicate: it matches a null channel and nothing else")]
+    public async Task EqNullIsAPredicate()
+    {
+        var eqNull = new SpecPredicate { Channel = "v", Eq = null };
+        Assert.True(await Routes(null, eqNull));
+        Assert.False(await Routes("x", eqNull));
+        Assert.False(await Routes(0L, eqNull));
+        Assert.False(await Routes(false, eqNull));
+    }
+
+    [Fact(DisplayName = "Neq = null is a predicate: it matches any non-null channel")]
+    public async Task NeqNullIsAPredicate()
+    {
+        var neqNull = new SpecPredicate { Channel = "v", Neq = null };
+        Assert.False(await Routes(null, neqNull));
+        Assert.True(await Routes("x", neqNull));
+        Assert.True(await Routes(0L, neqNull));
+    }
+
+    [Fact(DisplayName = "In may hold null")]
+    public async Task InMayHoldNull()
+    {
+        Assert.True(await Routes(null, new SpecPredicate { Channel = "v", In = new object?[] { "a", null } }));
+        Assert.False(await Routes(null, new SpecPredicate { Channel = "v", In = new object?[] { "a" } }));
+    }
+
+    [Fact(DisplayName = "a predicate's null operator survives JSON: Eq = null and Neq = null round-trip, unset operators stay unset")]
+    public async Task NullOperatorsRoundTripThroughJson()
+    {
+        foreach (var (pred, json) in new[]
+        {
+            (new SpecPredicate { Channel = "v", Eq = null }, """{"Channel":"v","Eq":null}"""),
+            (new SpecPredicate { Channel = "v", Neq = null }, """{"Channel":"v","Neq":null}"""),
+            (new SpecPredicate { Channel = "v", Gt = 3 }, """{"Channel":"v","Gt":3}"""),
+            (new SpecPredicate { Channel = "v", In = new object?[] { 1L, "a", null } }, """{"Channel":"v","In":[1,"a",null]}"""),
+        })
+        {
+            Assert.Equal(json, System.Text.Json.JsonSerializer.Serialize(pred));
+            var back = System.Text.Json.JsonSerializer.Deserialize<SpecPredicate>(json)!;
+            Assert.Equal(System.Text.Json.JsonSerializer.Serialize(pred), System.Text.Json.JsonSerializer.Serialize(back));
+        }
+
+        // Read from a TS-style document (camelCase keys), values come back as plain data.
+        var ts = System.Text.Json.JsonSerializer.Deserialize<SpecPredicate>("""{"channel":"v","eq":3}""")!;
+        Assert.True(await Routes(3L, ts));
+        var tsNull = System.Text.Json.JsonSerializer.Deserialize<SpecPredicate>("""{"channel":"v","neq":null}""")!;
+        Assert.True(await Routes("x", tsNull));
+        Assert.False(await Routes(null, tsNull));
+    }
+
+    [Fact(DisplayName = "a document written by the old serializer — every operator present, unused ones null — still routes on the real one")]
+    public async Task LegacyAllNullOperatorsYieldToTheGivenOne()
+    {
+        var legacy = System.Text.Json.JsonSerializer.Deserialize<SpecPredicate>(
+            """{"Channel":"v","Eq":null,"Neq":null,"In":null,"Gt":3,"Lt":null,"Truthy":null}""")!;
+        Assert.True(await Routes(5L, legacy));
+        Assert.False(await Routes(null, legacy));
+    }
+
     // ── round-trip and refusals ─────────────────────────────────────────────
 
     [Fact(DisplayName = "ToSpec keeps every predicate, config and the edge order")]

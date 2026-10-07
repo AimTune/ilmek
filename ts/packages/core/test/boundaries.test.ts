@@ -442,6 +442,21 @@ describe("fromSpec — malformed documents", () => {
         );
     });
 
+    test("an edge with a missing end fails at compile, naming it (mirrored in .NET)", () => {
+        assert.throws(
+            () => fromSpec({ ...base, edges: [...base.edges, { to: "a" } as any] }, registry).compile(),
+            /edge from unknown node undefined/,
+        );
+        assert.throws(
+            () => fromSpec({ ...base, edges: [...base.edges, { from: "a" } as any] }, registry).compile(),
+            /edge "a" -> unknown node undefined/,
+        );
+    });
+
+    test("a node with an empty id is a GraphError", () => {
+        assert.throws(() => fromSpec({ ...base, nodes: [{ id: "", type: "noop" }] }, registry), /node name must be a non-empty string, got ""/);
+    });
+
     test("a predicate with no channel key is malformed", () => {
         assert.throws(
             () => fromSpec({ ...base, edges: [{ from: START, to: "a", when: { eq: 1 } as any }] }, registry),
@@ -510,6 +525,19 @@ describe("declarative predicates route as documented", () => {
         ["truthy: zero is falsy", { channel: "v", truthy: true }, 0, false],
         ["truthy: a non-empty object is truthy", { channel: "v", truthy: true }, { a: 1 }, true],
         ["truthy: false matches an unset channel", { channel: "v", truthy: false }, undefined, true],
+        // `eq: null` is a predicate (`"eq" in pred`), not "no operator" — the .NET
+        // SpecTests pin the same cases. Strict: it matches null only; an unset
+        // channel is undefined here (in .NET, which has no undefined, it is null).
+        ["eq null matches a null channel", { channel: "v", eq: null }, null, true],
+        ["eq null does not match a value", { channel: "v", eq: null }, "x", false],
+        ["eq null does not match zero", { channel: "v", eq: null }, 0, false],
+        ["eq null does not match false", { channel: "v", eq: null }, false, false],
+        ["eq null does not match an unset channel", { channel: "v", eq: null }, undefined, false],
+        ["neq null matches a value", { channel: "v", neq: null }, "x", true],
+        ["neq null matches zero", { channel: "v", neq: null }, 0, true],
+        ["neq null refuses a null channel", { channel: "v", neq: null }, null, false],
+        ["in may hold null", { channel: "v", in: ["a", null] }, null, true],
+        ["in without null misses a null channel", { channel: "v", in: ["a"] }, null, false],
     ];
 
     for (const [label, when, value, expected] of cases) {

@@ -1,19 +1,114 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace Ilmek;
 
 /// <summary>
 /// A declarative predicate — the only kind of condition a <b>stored</b> graph may
 /// carry (MODEL.md §9). There is no eval path: the engine interprets these, it
 /// never executes text from the document.
+///
+/// <para><see cref="Eq"/> and <see cref="Neq"/> remember whether they were set, so
+/// <c>Eq = null</c> is a predicate ("the channel holds null"), exactly like
+/// <c>{ channel, eq: null }</c> in TypeScript — not "no operator". The JSON form
+/// writes only the operators that were set and reads <c>channel</c>/<c>Channel</c>
+/// keys alike, so a document round-trips between the two languages.</para>
 /// </summary>
+[JsonConverter(typeof(SpecPredicateJsonConverter))]
 public sealed record SpecPredicate
 {
+    private readonly object? _eq;
+    private readonly object? _neq;
+
     public required string Channel { get; init; }
-    public object? Eq { get; init; }
-    public object? Neq { get; init; }
+
+    public object? Eq { get => _eq; init { _eq = value; HasEq = true; } }
+
+    public object? Neq { get => _neq; init { _neq = value; HasNeq = true; } }
+
     public IReadOnlyList<object?>? In { get; init; }
     public double? Gt { get; init; }
     public double? Lt { get; init; }
     public bool? Truthy { get; init; }
+
+    /// <summary><see cref="Eq"/> was set — possibly to <c>null</c>.</summary>
+    [JsonIgnore] public bool HasEq { get; private init; }
+
+    /// <summary><see cref="Neq"/> was set — possibly to <c>null</c>.</summary>
+    [JsonIgnore] public bool HasNeq { get; private init; }
+}
+
+/// <summary>
+/// JSON for <see cref="SpecPredicate"/>: only the operators that were set are
+/// written (so <c>Eq = null</c> survives and an unset operator stays unset); keys
+/// are matched case-insensitively, so a TypeScript document (<c>"eq"</c>) reads
+/// too; operand values come back as plain CLR data (long, double, string, …),
+/// never <see cref="JsonElement"/>, so they compare like any channel value.
+/// </summary>
+internal sealed class SpecPredicateJsonConverter : JsonConverter<SpecPredicate>
+{
+    public override SpecPredicate? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType != JsonTokenType.StartObject)
+            throw new JsonException($"a spec predicate must be a JSON object, got {reader.TokenType}");
+
+        string? channel = null;
+        object? eq = null, neq = null;
+        bool hasEq = false, hasNeq = false;
+        List<object?>? @in = null;
+        double? gt = null, lt = null;
+        bool? truthy = null;
+
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+        {
+            var name = reader.GetString() ?? "";
+            reader.Read();
+            using var doc = JsonDocument.ParseValue(ref reader);
+            var value = doc.RootElement;
+            var isNull = value.ValueKind == JsonValueKind.Null;
+
+            switch (name.ToLowerInvariant())
+            {
+                case "channel": channel = value.ValueKind == JsonValueKind.String ? value.GetString() : null; break;
+                case "eq": hasEq = true; eq = JournalJson.ToPlain(value); break;
+                case "neq": hasNeq = true; neq = JournalJson.ToPlain(value); break;
+                case "in": @in = value.ValueKind == JsonValueKind.Array ? (List<object?>)JournalJson.ToPlain(value)! : null; break;
+                case "gt": gt = isNull ? null : Number(value, "gt"); break;
+                case "lt": lt = isNull ? null : Number(value, "lt"); break;
+                case "truthy": truthy = isNull ? null : value.ValueKind == JsonValueKind.True ? true
+                    : value.ValueKind == JsonValueKind.False ? false
+                    : throw new JsonException($"a spec predicate's \"truthy\" must be a boolean, got {value.ValueKind}"); break;
+                default: break; // an unknown key is not an operator; FromSpec says so if nothing else is
+            }
+        }
+
+        var pred = new SpecPredicate { Channel = channel!, In = @in, Gt = gt, Lt = lt, Truthy = truthy };
+        if (hasEq) pred = pred with { Eq = eq };
+        if (hasNeq) pred = pred with { Neq = neq };
+        return pred;
+    }
+
+    private static double Number(JsonElement value, string op) =>
+        value.ValueKind == JsonValueKind.Number
+            ? value.GetDouble()
+            : throw new JsonException($"a spec predicate's \"{op}\" must be a number, got {value.ValueKind}");
+
+    public override void Write(Utf8JsonWriter writer, SpecPredicate value, JsonSerializerOptions options)
+    {
+        string Name(string n) => options.PropertyNamingPolicy?.ConvertName(n) ?? n;
+
+        writer.WriteStartObject();
+        writer.WritePropertyName(Name("Channel"));
+        writer.WriteStringValue(value.Channel);
+        if (value.HasEq) { writer.WritePropertyName(Name("Eq")); JsonSerializer.Serialize(writer, value.Eq, options); }
+        if (value.HasNeq) { writer.WritePropertyName(Name("Neq")); JsonSerializer.Serialize(writer, value.Neq, options); }
+        if (value.In is not null) { writer.WritePropertyName(Name("In")); JsonSerializer.Serialize(writer, value.In, options); }
+        if (value.Gt is { } gt) { writer.WritePropertyName(Name("Gt")); writer.WriteNumberValue(gt); }
+        if (value.Lt is { } lt) { writer.WritePropertyName(Name("Lt")); writer.WriteNumberValue(lt); }
+        if (value.Truthy is { } t) { writer.WritePropertyName(Name("Truthy")); writer.WriteBooleanValue(t); }
+        writer.WriteEndObject();
+    }
 }
 
 public sealed record SpecChannel(string Reducer = "last_write");
@@ -47,24 +142,45 @@ public delegate NodeFn NodeBuilder(IReadOnlyDictionary<string, object?> config);
 /// </summary>
 public static class Spec
 {
-    /// <summary>Build a graph from its spec.</summary>
+    /// <summary>
+    /// Build a graph from its spec.
+    ///
+    /// <para>A spec is a stored document — usually deserialized JSON — so its shape
+    /// is checked at run time rather than trusted from the static types: a null
+    /// spec, channel config, node, edge or name fails as a <see cref="GraphException"/>
+    /// naming the bad part (the same cases and messages as the TypeScript
+    /// <c>fromSpec</c>), never as a NullReferenceException from inside the builder.
+    /// Missing <c>Channels</c>, <c>Nodes</c> or <c>Edges</c> read as empty.</para>
+    /// </summary>
     public static Graph FromSpec(GraphSpec spec, IReadOnlyDictionary<string, NodeBuilder>? registry = null)
     {
+        if (spec is null) throw new GraphException("a graph spec must be an object, got null");
+
         registry ??= new Dictionary<string, NodeBuilder>();
         var graph = Graph.Create(spec.Name);
-        var declared = new HashSet<string>(spec.Channels.Keys);
+        var channels = spec.Channels ?? new Dictionary<string, SpecChannel>();
+        var declared = new HashSet<string>(channels.Keys);
 
-        foreach (var (name, cfg) in spec.Channels)
+        foreach (var (name, cfg) in channels)
+        {
+            if (cfg is null) throw new GraphException($"channel \"{name}\": config must be an object, got null");
             graph.Channel(name, ChannelFromSpec(cfg.Reducer, name));
+        }
 
-        foreach (var node in spec.Nodes)
+        foreach (var node in spec.Nodes ?? [])
+        {
+            if (node is null) throw new GraphException("a spec node must be an object, got null");
             graph.Node(node.Id, BuildNode(node, registry), type: node.Type,
                 config: node.Config ?? new Dictionary<string, object?>());
+        }
 
-        foreach (var edge in spec.Edges)
+        foreach (var edge in spec.Edges ?? [])
+        {
+            if (edge is null) throw new GraphException("a spec edge must be an object, got null");
             graph.Edge(edge.From, edge.To,
                 when: edge.When is null ? null : PredicateFromSpec(edge.When, declared),
                 specWhen: edge.When);
+        }
 
         return graph;
     }
@@ -124,14 +240,14 @@ public static class Spec
         if (node.Type is null)
         {
             throw new GraphException(
-                $"node \"{node.Id}\" has no \"type\" — a stored graph resolves behaviour through the " +
+                $"node {Graph.Quote(node.Id)} has no \"type\" — a stored graph resolves behaviour through the " +
                 "registry, so every node needs one.");
         }
 
-        if (!registry.TryGetValue(node.Type, out var build))
+        if (!registry.TryGetValue(node.Type, out var build) || build is null)
         {
             throw new GraphException(
-                $"node \"{node.Id}\" has type \"{node.Type}\", which is not in the registry. " +
+                $"node {Graph.Quote(node.Id)} has type \"{node.Type}\", which is not in the registry. " +
                 $"Known types: [{string.Join(", ", registry.Keys)}]");
         }
         return build(node.Config ?? new Dictionary<string, object?>())
@@ -139,7 +255,8 @@ public static class Spec
                 $"registry entry \"{node.Type}\" returned null; expected a node function (state, ctx).");
     }
 
-    private static Channel ChannelFromSpec(string reducer, string name) => reducer switch
+    // No reducer named means last_write, as in TS (`reducer ?? "last_write"`).
+    private static Channel ChannelFromSpec(string? reducer, string name) => (reducer ?? "last_write") switch
     {
         "last_write" => Channels.LastWrite(),
         "append" => Channels.Append(),
@@ -151,6 +268,13 @@ public static class Spec
 
     private static GuardFn PredicateFromSpec(SpecPredicate pred, HashSet<string> declared)
     {
+        if (pred.Channel is null)
+        {
+            throw new GraphException(
+                $"predicate {JsonSerializer.Serialize(pred)} is malformed — expected an object with a \"channel\" " +
+                "key, e.g. { channel: \"intent\", eq: \"buy\" }.");
+        }
+
         if (!declared.Contains(pred.Channel))
         {
             throw new GraphException(
@@ -164,8 +288,18 @@ public static class Spec
 
     private static Func<object?, bool> CompileOp(SpecPredicate p)
     {
-        if (p.Eq is not null) return a => SpecEquals(a, p.Eq);
-        if (p.Neq is not null) return a => !SpecEquals(a, p.Neq);
+        // Operators in the TS order (eq, neq, in, gt, lt, truthy). Eq/Neq count when
+        // they were set, even to null — `"eq" in pred` in TS. One exception keeps
+        // documents written by the default serializer before SpecPredicate had its
+        // own converter routing as before: there every operator is present and the
+        // unused ones are null, so a null Eq/Neq yields when another operator has a
+        // value.
+        var otherGiven = p.In is not null || p.Gt is not null || p.Lt is not null || p.Truthy is not null;
+        var eqGiven = p.HasEq && (p.Eq is not null || (!otherGiven && !(p.HasNeq && p.Neq is not null)));
+        var neqGiven = p.HasNeq && (p.Neq is not null || (!otherGiven && !(p.HasEq && p.Eq is not null)));
+
+        if (eqGiven) return a => SpecEquals(a, p.Eq);
+        if (neqGiven) return a => !SpecEquals(a, p.Neq);
         if (p.In is not null) return a => p.In.Any(v => SpecEquals(a, v));
         // Like the TS reference (`typeof a === "number"`): only a number compares.
         // A string or bool channel is simply not greater — never parsed, never a

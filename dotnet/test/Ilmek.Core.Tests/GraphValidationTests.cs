@@ -42,23 +42,28 @@ public class GraphValidationTests
         Assert.Contains("MaxAttempts", ex.Message);
     }
 
-    [Fact(DisplayName = "a null node id or channel name is rejected at the builder")]
+    [Fact(DisplayName = "a null node id or channel name is a GraphException at the builder, as in TS")]
     public void NullNames()
     {
-        Assert.ThrowsAny<ArgumentException>(() => Graph.Create().Node(null!, Noop));
-        Assert.ThrowsAny<ArgumentException>(() => Graph.Create().Channel(null!, Channels.LastWrite()));
+        Assert.Equal("node name must be a non-empty string, got null",
+            Assert.Throws<GraphException>(() => Graph.Create().Node(null!, Noop)).Message);
+        Assert.Equal("channel name must be a non-empty string, got null",
+            Assert.Throws<GraphException>(() => Graph.Create().Channel(null!, Channels.LastWrite())).Message);
     }
 
-    [Fact(DisplayName = "an empty-string node id is a legal, if odd, name — pinned as accepted")]
-    public async Task EmptyNodeIdAccepted()
+    [Fact(DisplayName = "an empty-string node id or channel name is refused, as in TS (requireName)")]
+    public void EmptyNamesRefused()
     {
-        var g = Graph.Create()
-            .Channel("log", Channels.Append())
-            .Node("", (_, _) => Update.Of("log", "ran"))
-            .Edge(Graph.Start, "").Edge("", Graph.End)
-            .Compile();
-        Assert.Equal(new List<string> { "ran" }, (await g.RunAsync()).State!.GetList<string>("log"));
+        Assert.Equal("node name must be a non-empty string, got \"\"",
+            Assert.Throws<GraphException>(() => Graph.Create().Node("", Noop)).Message);
+        Assert.Equal("channel name must be a non-empty string, got \"\"",
+            Assert.Throws<GraphException>(() => Graph.Create().Channel("", Channels.LastWrite())).Message);
     }
+
+    [Fact(DisplayName = "a null node function is a GraphException naming the node, as in TS")]
+    public void NullNodeFunction() =>
+        Assert.Equal("node \"a\": expected a function (state, ctx), got null",
+            Assert.Throws<GraphException>(() => Graph.Create().Node("a", (NodeFn)null!)).Message);
 
     [Fact(DisplayName = "Compile refuses an edge from an unknown node, including from __end__")]
     public void EdgeFromUnknown()
