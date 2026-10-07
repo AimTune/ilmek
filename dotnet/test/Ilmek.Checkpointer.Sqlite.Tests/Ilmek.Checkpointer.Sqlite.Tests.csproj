@@ -16,6 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The checkpointer contract is shared with Ilmek.Core.Tests, so every backend passes one list. -->
+    <Compile Include="../Ilmek.Core.Tests/CheckpointerContract.cs" Link="CheckpointerContract.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/Ilmek.Checkpointer.Sqlite/Ilmek.Checkpointer.Sqlite.csproj" />
   </ItemGroup>
 
