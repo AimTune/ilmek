@@ -73,6 +73,30 @@ export function generateCheckpointId(): string {
     return `ckpt-${micros}-${tiebreak}-${randomBytes(5).toString("base64url")}`;
 }
 
+/**
+ * The id of the task that runs `taskKey` in the superstep planned from
+ * `planId` (`null` for a thread's first superstep). Its journal is stored under
+ * this id.
+ */
+export function taskIdFor(threadId: string, planId: string | null, taskKey: string): string {
+    return `${threadId}:${planId ?? "root"}:${taskKey}`;
+}
+
+/**
+ * The task-id prefixes of every journal a thread can own, for
+ * `Checkpointer.deleteThread()`. A plan id is either absent (`root`) or a
+ * generated checkpoint id (`ckpt-…`), so these two prefixes cover all of the
+ * thread's journals and none of another thread's — unless that thread's own
+ * id extends this one with `:root:` or `:ckpt-`.
+ *
+ * Deleting a thread must drop its journals too: a fresh run on a reused
+ * thread id plans its first superstep from `root` again, and would otherwise
+ * replay the deleted conversation's steps and pauses.
+ */
+export function threadJournalPrefixes(threadId: string): readonly string[] {
+    return [`${threadId}:root:`, `${threadId}:ckpt-`];
+}
+
 export function isInterrupted(checkpoint: Checkpoint): boolean {
     return checkpoint.pending.length > 0;
 }
@@ -91,6 +115,10 @@ export interface Checkpointer {
     putJournal(taskId: string, journal: Journal): Promise<void>;
     getJournal(taskId: string): Promise<Journal>;
     dropJournal(taskId: string): Promise<void>;
+    /**
+     * Forget the thread: every checkpoint, and every journal it owns (see
+     * `threadJournalPrefixes`), so a fresh run on the same id starts clean.
+     */
     deleteThread(threadId: string): Promise<void>;
 }
 
@@ -148,5 +176,9 @@ export class InMemoryCheckpointer implements Checkpointer {
 
     async deleteThread(threadId: string): Promise<void> {
         this.checkpoints.delete(threadId);
+        const prefixes = threadJournalPrefixes(threadId);
+        for (const taskId of [...this.journals.keys()]) {
+            if (prefixes.some((p) => taskId.startsWith(p))) this.journals.delete(taskId);
+        }
     }
 }

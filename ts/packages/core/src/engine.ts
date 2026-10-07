@@ -12,6 +12,7 @@ import {
 } from "./channel.ts";
 import {
     generateCheckpointId,
+    taskIdFor,
     type Checkpoint,
     type Checkpointer,
     type Pending,
@@ -331,7 +332,7 @@ export async function* runStream<C extends ChannelMap>(
 
         // ── dispatch ──────────────────────────────────────────────────────
         const taskIdOf = (task: ScheduledTask): string =>
-            `${threadId}:${planId ?? "root"}:${task.taskKey}`;
+            taskIdFor(threadId, planId, task.taskKey);
 
         yield ev("step_start", { step, tasks: next.map((t) => t.taskKey) });
         for (const task of next) yield ev("node_start", { node: task.node, taskId: taskIdOf(task) });

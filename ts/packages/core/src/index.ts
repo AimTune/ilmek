@@ -48,7 +48,13 @@ import { runStream, type RunOptions, type IlmekEvent } from "./engine.ts";
 export { channel, lastWrite, append, merge, reduce, UNSET } from "./channel.ts";
 export type { Channel, ChannelMap, Reducer, ReducerKind, StateOf, UpdateOf, Unset } from "./channel.ts";
 
-export { InMemoryCheckpointer, generateCheckpointId, isInterrupted } from "./checkpoint.ts";
+export {
+    InMemoryCheckpointer,
+    generateCheckpointId,
+    isInterrupted,
+    taskIdFor,
+    threadJournalPrefixes,
+} from "./checkpoint.ts";
 export type { Checkpoint, Checkpointer, Pending, ScheduledTask } from "./checkpoint.ts";
 
 export type { Context, Logger } from "./context.ts";

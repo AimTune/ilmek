@@ -11,7 +11,7 @@
 // "latest" and history are plain ORDER BY id); journals are the per-task replay
 // memory (MODEL.md §5), dropped as each superstep commits.
 
-import { Journal, type Checkpoint, type Checkpointer } from "@ilmek/core";
+import { Journal, threadJournalPrefixes, type Checkpoint, type Checkpointer } from "@ilmek/core";
 
 /** The slice of a node-postgres client this checkpointer needs. `pg` satisfies it as-is. */
 export interface SqlClient {
@@ -36,7 +36,22 @@ const TAG = {
     getJournal: "ilmek:get_journal",
     dropJournal: "ilmek:drop_journal",
     deleteThread: "ilmek:delete_thread",
+    deleteThreadJournals: "ilmek:delete_thread_journals",
 } as const;
+
+/**
+ * The prefix is spliced into every statement as part of a table name, where a
+ * bound parameter cannot go — so only a plain SQL identifier is accepted.
+ */
+function checkTablePrefix(prefix: string): string {
+    if (typeof prefix !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(prefix)) {
+        throw new Error(
+            `PostgresCheckpointer: tablePrefix must be a plain SQL identifier ` +
+                `(letters, digits, underscore; not starting with a digit), got ${JSON.stringify(prefix)}`,
+        );
+    }
+    return prefix;
+}
 
 interface CheckpointRow {
     data: string | Record<string, unknown>;
@@ -59,7 +74,7 @@ export class PostgresCheckpointer implements Checkpointer {
 
     constructor(db: SqlClient, opts: PostgresCheckpointerOptions = {}) {
         this.db = db;
-        const prefix = opts.tablePrefix ?? "ilmek";
+        const prefix = checkTablePrefix(opts.tablePrefix ?? "ilmek");
         this.checkpoints = `${prefix}_checkpoints`;
         this.journals = `${prefix}_journals`;
     }
@@ -155,6 +170,16 @@ export class PostgresCheckpointer implements Checkpointer {
         await this.db.query(
             `/* ${TAG.deleteThread} */ DELETE FROM ${this.checkpoints} WHERE thread_id = $1`,
             [threadId],
+        );
+        // The thread's journals too, or a fresh run on the same id would replay
+        // the deleted conversation's steps (see threadJournalPrefixes). substr,
+        // not LIKE: a thread id may legally contain % or _.
+        const [root, planned] = threadJournalPrefixes(threadId);
+        await this.db.query(
+            `/* ${TAG.deleteThreadJournals} */
+             DELETE FROM ${this.journals}
+             WHERE substr(task_id, 1, length($1)) = $1 OR substr(task_id, 1, length($2)) = $2`,
+            [root, planned],
         );
     }
 }
