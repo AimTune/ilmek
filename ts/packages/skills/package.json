@@ -1,6 +1,6 @@
 {
   "name": "@ilmek/skills",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Agent Skills for ilmek — load SKILL.md folders, expose them to a model with progressive disclosure, and drop them into a graph as data.",
   "type": "module",
   "license": "MIT",

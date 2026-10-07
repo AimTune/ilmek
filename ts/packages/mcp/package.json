@@ -1,6 +1,6 @@
 {
   "name": "@ilmek/mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MCP for ilmek — consume Model Context Protocol servers as replay-safe tools, resources and prompt-derived skills, and drop them into a graph as data.",
   "type": "module",
   "license": "MIT",

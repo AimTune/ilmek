@@ -1,6 +1,6 @@
 {
   "name": "@ilmek/checkpoint-postgres",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Postgres checkpointer for ilmek — durable threads over any node-postgres-style client. No hard pg dependency.",
   "type": "module",
   "license": "MIT",

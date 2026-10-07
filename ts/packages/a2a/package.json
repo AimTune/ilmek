@@ -1,6 +1,6 @@
 {
   "name": "@ilmek/a2a",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A2A for ilmek — call Agent2Agent agents from a graph, replay-safe, with human-in-the-loop pauses surfaced as input-required tasks, and drop them into a graph as data.",
   "type": "module",
   "license": "MIT",
