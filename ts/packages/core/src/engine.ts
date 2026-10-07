@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { materialize, reduceChannel, UNSET, type ChannelMap, type StateOf, type UpdateOf } from "./channel.ts";
 import {
     generateCheckpointId,
@@ -640,6 +641,11 @@ function singleAnswer(pending: readonly Pending[], answer: unknown): ReadonlyMap
  * Answers arrive keyed by the thread-scoped `id`; the journal is addressed by
  * the task-scoped `key`. Conflating the two silently drops an answer whenever
  * two nodes pause in the same superstep.
+ *
+ * All-or-nothing: every answer is validated against its journal before any is
+ * persisted. Writing them one at a time would let a resume that is missing one
+ * answer commit the others before failing — and the corrected retry would then
+ * be refused with `already_answered`, leaving the thread stuck for good.
  */
 async function answerPending(
     checkpointer: Checkpointer,
@@ -654,18 +660,46 @@ async function answerPending(
                     `${JSON.stringify(pending.map((x) => x.id))}`,
             );
         }
+    }
 
-        const journal = await checkpointer.getJournal(p.taskId);
-        const result = journal.answer(p.key, answers.get(p.id));
+    // Answer in memory first, one loaded journal per task, so a refusal on any
+    // entry leaves every stored journal untouched.
+    const journals = new Map<string, Journal>();
+    for (const p of pending) {
+        let journal = journals.get(p.taskId);
+        if (!journal) {
+            journal = await checkpointer.getJournal(p.taskId);
+            journals.set(p.taskId, journal);
+        }
+        const answer = answers.get(p.id);
+
+        // The checkpoint still lists this pause, yet its journal entry is
+        // already answered: an earlier resume recorded the answer and then its
+        // superstep never committed (a node threw, the run was aborted, the
+        // process died). That resume is being retried. The recorded answer
+        // stands — steps after it may already have run on it — so the same
+        // answer replays, and a different one is refused rather than ignored.
+        const entry = journal.fetch(p.key);
+        if (entry?.status === "done") {
+            if (isDeepStrictEqual(entry.value, answer)) continue;
+            throw new ResumeError(
+                `pending interrupt ${JSON.stringify(p.id)} was already answered with ` +
+                    `${JSON.stringify(entry.value) ?? String(entry.value)} by an earlier resume whose ` +
+                    `superstep did not complete. Steps after the pause may already have run on that ` +
+                    `answer, so it cannot be changed — resume again with the same answer.`,
+            );
+        }
+
+        const result = journal.answer(p.key, answer);
 
         if (!result.ok) {
             throw new ResumeError(
                 `cannot answer ${JSON.stringify(p.key)} on task ${JSON.stringify(p.taskId)}: ${result.reason}`,
             );
         }
-
-        await checkpointer.putJournal(p.taskId, journal);
     }
+
+    for (const [taskId, journal] of journals) await checkpointer.putJournal(taskId, journal);
 }
 
 // ── plan-time context ───────────────────────────────────────────────────────
