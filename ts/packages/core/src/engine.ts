@@ -1,6 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
-import { materialize, reduceChannel, UNSET, type ChannelMap, type StateOf, type UpdateOf } from "./channel.ts";
+import {
+    materialize,
+    ownValue,
+    reduceChannel,
+    setOwn,
+    UNSET,
+    type ChannelMap,
+    type StateOf,
+    type UpdateOf,
+} from "./channel.ts";
 import {
     generateCheckpointId,
     type Checkpoint,
@@ -603,7 +612,9 @@ function foldUpdate<C extends ChannelMap>(
         // `{ messages: undefined }` means "not written" under Partial semantics.
         if (value === undefined) continue;
 
-        const ch = g.channels[key];
+        // Own-property lookups: `constructor` or `__proto__` is a channel only
+        // if the graph declared one by that name.
+        const ch = ownValue(g.channels, key);
         if (!ch) {
             throw new GraphError(
                 `write to undeclared channel ${JSON.stringify(key)}. ` +
@@ -611,7 +622,7 @@ function foldUpdate<C extends ChannelMap>(
             );
         }
 
-        out[key] = reduceChannel(key, ch, key in out ? out[key] : UNSET, value);
+        setOwn(out, key, reduceChannel(key, ch, Object.hasOwn(out, key) ? out[key] : UNSET, value));
     }
 
     return out;

@@ -56,15 +56,24 @@ export type NodeRegistry = Record<string, (config: Record<string, unknown>) => N
  * which names to invoke.
  */
 export function fromSpec(spec: GraphSpec, registry: NodeRegistry = {}): GraphBuilder<ChannelMap> {
+    // A spec is a stored document, so its shape is checked at runtime rather
+    // than trusted from the static type: a malformed one fails as a GraphError
+    // naming the bad part, never as a TypeError from deep inside the builder.
+    if (!isObject(spec)) throw new GraphError(`a graph spec must be an object, got ${describe(spec)}`);
+
     let builder = graph(spec.name ?? undefined) as GraphBuilder<ChannelMap>;
 
     const declared = new Set(Object.keys(spec.channels ?? {}));
 
     for (const [name, cfg] of Object.entries(spec.channels ?? {})) {
-        builder = builder.channel(name, channelFromSpec(cfg.reducer, name)) as GraphBuilder<ChannelMap>;
+        if (cfg !== undefined && !isObject(cfg)) {
+            throw new GraphError(`channel ${JSON.stringify(name)}: config must be an object, got ${describe(cfg)}`);
+        }
+        builder = builder.channel(name, channelFromSpec(cfg?.reducer, name)) as GraphBuilder<ChannelMap>;
     }
 
     for (const node of spec.nodes ?? []) {
+        if (!isObject(node)) throw new GraphError(`a spec node must be an object, got ${describe(node)}`);
         builder = builder.node(node.id, buildNode(node, registry), {
             type: node.type,
             config: node.config ?? {},
@@ -72,6 +81,7 @@ export function fromSpec(spec: GraphSpec, registry: NodeRegistry = {}): GraphBui
     }
 
     for (const edge of spec.edges ?? []) {
+        if (!isObject(edge)) throw new GraphError(`a spec edge must be an object, got ${describe(edge)}`);
         builder = builder.edge(edge.from, edge.to, {
             ...(edge.when ? { when: predicateFromSpec(edge.when, declared), specWhen: edge.when } : {}),
         });
@@ -134,7 +144,9 @@ function buildNode(node: SpecNode, registry: NodeRegistry): NodeFn<any> {
         );
     }
 
-    const build = registry[node.type];
+    // Own entries only: a type named `constructor` or `valueOf` must not
+    // resolve to an Object.prototype member and get invoked as a builder.
+    const build = Object.hasOwn(registry, node.type) ? registry[node.type] : undefined;
     if (!build) {
         throw new GraphError(
             `node ${JSON.stringify(node.id)} has type ${JSON.stringify(node.type)}, which is not ` +
@@ -150,6 +162,16 @@ function buildNode(node: SpecNode, registry: NodeRegistry): NodeFn<any> {
         );
     }
     return fn;
+}
+
+function isObject(value: unknown): value is Record<string, any> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function describe(value: unknown): string {
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "an array";
+    return typeof value;
 }
 
 // ── reducers ────────────────────────────────────────────────────────────────
