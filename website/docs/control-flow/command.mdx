@@ -45,7 +45,7 @@ const g = graph("agent", AgentState)
   .compile();
 
 const { status, state } = await run(g, { messages: ["hello"] });
-console.log(status, state.messages);   // "done" [ "hello", "final answer" ]
+console.log(status, state?.messages);   // "done" [ "hello", "final answer" ]
 ```
 
 </TabItem>
@@ -79,7 +79,7 @@ var g = Graph.Create<AgentState>("agent")
     .Compile();
 
 var input = Update.For<AgentState>().Append(s => s.Messages, "hello");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 

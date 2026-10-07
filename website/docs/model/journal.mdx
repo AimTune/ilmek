@@ -123,8 +123,8 @@ var g = Graph.Create<CheckoutState>("checkout")
 
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
-var paused = await IlmekRuntime.RunAsync(g, input, opts);       // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);   // Status: Done
+var paused = await g.RunAsync(input, opts);      // Status: Interrupted
+var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 ```
 
 </TabItem>
@@ -209,28 +209,71 @@ var g = Graph.Create<CartState>("charge-each")
     .Compile();
 
 var input = Update.For<CartState>().Set(s => s.Cart, new List<Item> { new("sku-1"), new("sku-2") });
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine(result.Status);   // Done
 ```
 
 </TabItem>
 </Tabs>
 
+## Serializable values
+
 Journaled values **must survive a serializer round-trip**: what a step returns on
 a fresh call and what it returns from the journal must be equal. A step returning
 a PID, socket, or stream handle violates this — return an id and re-resolve it.
 
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+The durable checkpointers store the journal as JSON, so keep step results to
+plain objects, arrays, strings, numbers, booleans and `null` — no `Date`, `Map`,
+class instances or `undefined` fields.
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+`InMemoryCheckpointer` keeps the CLR object itself, but a durable checkpointer
+hands a journaled value back in its **JSON shape** — `Dictionary<string, object?>`,
+`List<object?>`, `string`, `long`/`double`, `bool` or `null` — and `StepAsync<T>`
+casts the recorded value to `T`. So a step that returns a record, a tuple or a
+`decimal` works in memory but fails with `InvalidCastException` on the resume
+pass once its journal has been read back from SQLite. With a durable
+checkpointer, return one of those JSON shapes from a step and rebuild richer
+objects from it. The same applies to an interrupt answer read with
+`InterruptAsync<T>`.
+
+</TabItem>
+</Tabs>
+
 ## Strict mode
 
-When enabled (**default in dev/test**), the engine records the observed key
-sequence and compares it against the journal on the next replay. A journaled key
-that the replay never requests — or a divergent order for an auto-suffixed key —
-raises `NondeterminismError` naming the key. This turns a silent double-charge
-into a loud test failure.
+On by default (`strict: true` / `Strict = true`): whenever a node runs to
+completion, the engine checks that it requested every key its journal holds. A
+journaled key the replay never requested means the node took a different path
+than before, and the task fails with `NondeterminismError`
+(`NondeterminismException` in .NET) naming the missing key(s). This turns a
+silent double-charge into a loud test failure. Pass `strict: false` to turn the
+check off.
+
+Strict mode checks *which* keys were requested, not their order or inputs: a
+loop that charges items under the bare key `"charge"` and then sees them in a
+different order gets `charge#0`'s recorded value for a different item, without
+complaint. That is why loops need [stable keys](#keys).
+
+Independently of strict mode, a `step` whose key collides with a pending
+`interrupt` of the same key raises `NondeterminismError` — give the two
+different keys.
 
 ## Lifetime
 
-A journal is scoped to a **task** — `(thread, checkpoint, node)` — and is
-discarded when that task completes and its update is reduced. It is *replay
-memory*, not history. [Checkpoints](/checkpointers/overview) are the durable
-record.
+A journal is scoped to a **task**. It is stored under the task id
+`<threadId>:<planId | "root">:<taskKey>`, where `planId` is the checkpoint the
+superstep was planned from (`root` for a thread's first superstep) and `taskKey`
+is the node name — or `node#n` for the nth [send](/control-flow/send) to it.
+It is discarded when the task's superstep commits and its update is reduced: it
+is *replay memory*, not history. [Checkpoints](/checkpointers/overview) are the
+durable record.
+
+Deleting a thread (`deleteThread` / `DeleteThreadAsync`) drops its journals along
+with its checkpoints, so a fresh run on a reused thread id never replays the old
+conversation's steps.

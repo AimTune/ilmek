@@ -45,7 +45,7 @@ const g = graph("support", SupportState)
   .compile();
 
 const { status, state } = await run(g, { messages: ["hi"] });
-console.log(status, state.messages);   // "done" [ "hi", "hi" ]
+console.log(status, state?.messages);   // "done" [ "hi", "hi" ]
 ```
 
 </TabItem>
@@ -75,7 +75,7 @@ var g = Graph.Create<SupportState>("support")
     .Compile();
 
 var input = Update.For<SupportState>().Append(s => s.Messages, "hi");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 
@@ -87,12 +87,17 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}
 A reducer has the signature `(current, incoming) => next`. `current` is absent on
 the first write. Every implementation provides these built-ins:
 
-| Reducer | Behaviour |
-|---|---|
-| `last_write` | `incoming` wins. **The default.** |
-| `append` | List concat: `current ++ wrap(incoming)`. |
-| `merge` | Shallow map merge; `incoming` wins per key. |
-| custom | Any `(current, incoming) => next` function. |
+| Reducer | Behaviour | TypeScript | .NET |
+|---|---|---|---|
+| `last_write` | `incoming` wins. **The default.** | `channel.lastWrite<T>(default?)` | a plain property, `[LastWrite]`, or `Channels.LastWrite(default)` |
+| `append` | List concat: `current ++ wrap(incoming)`. | `channel.append<T>()` | `[Append]` or `Channels.Append()` |
+| `merge` | Shallow map merge; `incoming` wins per key. | `channel.merge<T>()` | `[Merge]` or `Channels.Merge()` |
+| custom | Any `(current, incoming) => next` function. | `channel.reduce(fn, default)` | `Channels.Reduce(fn, default)`, set with `.Channel(s => s.X, …)` |
+
+A node that writes a channel the graph never declared ends the run with
+`status: "error"` (a `GraphError` naming the channel) rather than having the
+write dropped; a reducer that throws ends it the same way with a `ReducerError`
+(`GraphException` / `ReducerException` in .NET).
 
 ## The conflict rule
 
@@ -106,5 +111,5 @@ happen to be scheduled.
 
 Channels **must be JSON-serializable** — they are checkpointed. A non-serializable
 value (a PID, socket, or stream handle) belongs in a
-[step result](/model/journal#keys) only if the serializer round-trips it; return
+[step result](/model/journal#serializable-values) only if the serializer round-trips it; return
 an id and re-resolve it instead.

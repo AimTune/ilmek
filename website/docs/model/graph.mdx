@@ -42,7 +42,7 @@ const g = graph("support", SupportState)
   .node("agent", Agent.run)
   .node("checkout", Checkout.run)
   .edge(START, "agent")
-  .edge("agent", "checkout", (state) => state.intent === "buy")   // conditional
+  .edge("agent", "checkout", { when: (state) => state.intent === "buy" })   // conditional
   .edge("checkout", END)
   .compile();
 
@@ -91,7 +91,7 @@ var g = Graph.Create<SupportState>("support")
     .Compile();
 
 var input = Update.For<SupportState>().Append(s => s.Messages, "hi");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine(result.Status);   // Done
 ```
 
@@ -133,12 +133,12 @@ const g = graph("route", RouteState)
   .node("agent", async (state) => ({ intent: "buy" }))
   .node("checkout", async (state) => ({ log: ["order placed"] }))
   .edge(START, "agent")
-  .edge("agent", "checkout", (state) => state.intent === "buy")   // taken only when it passes
+  .edge("agent", "checkout", { when: (state) => state.intent === "buy" })   // taken only when it passes
   .edge("checkout", END)
   .compile();
 
 const { status, state } = await run(g, { intent: "" });
-console.log(status, state.log);   // "done" [ "order placed" ]
+console.log(status, state?.log);   // "done" [ "order placed" ]
 ```
 
 </TabItem>
@@ -163,7 +163,7 @@ var g = Graph.Create<RouteState>("route")
     .Compile();
 
 var input = Update.For<RouteState>().Set(s => s.Intent, "");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 
@@ -201,7 +201,7 @@ const g = graph("plan", PlanState)
   .compile();
 
 const { status, state } = await run(g, { needsTool: true });
-console.log(status, state.log);   // "done" [ "ran tool" ]
+console.log(status, state?.log);   // "done" [ "ran tool" ]
 ```
 
 </TabItem>
@@ -228,7 +228,7 @@ var g = Graph.Create<PlanState>("plan")
     .Compile();
 
 var input = Update.For<PlanState>().Set(s => s.NeedsTool, true);
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 
@@ -237,7 +237,10 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 
 A router (and any conditional predicate) **must be pure**. It runs inside
 *planning*, not inside a task — so it has **no journal** and must not perform side
-effects. **Route on state; compute in nodes.** For data-driven fan-out, see
+effects. **Route on state; compute in nodes.** A router or guard gets a `ctx`,
+but calling `ctx.step` or `ctx.interrupt` there throws a `GraphError`
+(`GraphException`) — as does a router that names a node the graph does not have
+(the message lists the known nodes). For data-driven fan-out, see
 [`send`](/control-flow/send); for a node that decides its own next hop after
 seeing its own update, see [`command`](/control-flow/command).
 
@@ -318,7 +321,7 @@ var registry = new Dictionary<string, NodeBuilder>
 var g = Spec.FromSpec(spec, registry).Compile();
 
 // Round-trip is a conformance test: the compiled graph serializes back to the same data.
-var rebuilt = Spec.ToSpec(g);   // GraphSpec, value-equal to spec
+var rebuilt = Spec.ToSpec(g);   // a GraphSpec with the same content as spec
 ```
 
 </TabItem>

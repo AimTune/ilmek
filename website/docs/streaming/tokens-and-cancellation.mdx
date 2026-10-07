@@ -22,10 +22,8 @@ it is generated" is universal, so a **token** has a fixed shape:
 
 ```ts
 import { graph, channel, START, END, streamModes } from "@ilmek/core";
-import type { ChannelMap, StateOf } from "@ilmek/core";
-
-/** A token has a fixed shape: { type: "token", text, meta? }. */
-type TokenChunk = { type: "token"; text: string; meta?: unknown };
+// A token has a fixed shape: TokenChunk = { type: "token", text, meta? }.
+import type { ChannelMap, StateOf, TokenChunk } from "@ilmek/core";
 
 /** Answer state — the reply, streamed token by token. */
 const AnswerState = {
@@ -65,8 +63,9 @@ sealed class AnswerState
 var g = Graph.Create<AnswerState>("answer")
     .Node("responder", (state, ctx) =>
     {
-        // ctx.EmitToken("text", meta) produces { type = "token", text, meta }; not journaled.
-        foreach (var tok in new[] { "Hel", "lo" }) ctx.EmitToken(tok, new { model = "demo" });
+        // ctx.EmitToken(text, meta) emits a TokenChunk(Text, Meta); not journaled.
+        var meta = new Dictionary<string, object?> { ["model"] = "demo" };
+        foreach (var tok in new[] { "Hel", "lo" }) ctx.EmitToken(tok, meta);
         return Update.For<AnswerState>().Append(s => s.Answer, "Hello");
     })
     .Edge(Graph.Start, "responder")
@@ -75,10 +74,10 @@ var g = Graph.Create<AnswerState>("answer")
 
 // the `messages` projection is exactly "the custom payloads that are tokens"
 await foreach (var part in Streaming.Projected(
-    IlmekRuntime.Stream(g, Update.For<AnswerState>()),
+    g.StreamEvents(Update.For<AnswerState>()),
     new[] { StreamMode.Messages }))
 {
-    Console.Write(part.Data);
+    Console.Write(((TokenChunk)part.Data!).Text);
 }
 ```
 
@@ -93,6 +92,11 @@ values it commits through [`ctx.step`](/model/journal) are memoized.
 So the default is exactly *"show your work again on resume, but never redo the side
 effects."* The [`messages` projection mode](/streaming/projection-modes) is
 precisely "the `custom` payloads that are tokens".
+
+In TypeScript a token is the plain object `{ type: "token", text, meta? }` —
+`token(text, meta?)` builds one and `isToken(payload)` recognises one. In .NET it
+is the record `TokenChunk(Text, Meta)`, recognised by its type, so it has no
+`type` field.
 
 ## Cancellation
 
@@ -167,7 +171,7 @@ var g = Graph.Create<WorkState>("work")
     .Compile();
 
 var cts = new CancellationTokenSource();
-var events = IlmekRuntime.Stream(g, Update.For<WorkState>(), opts: null, ct: cts.Token);
+var events = g.StreamEvents(Update.For<WorkState>(), new RunOptions { CancellationToken = cts.Token });
 // ... later:
 cts.Cancel();   // "user navigated away"
 
@@ -175,9 +179,12 @@ await foreach (var ev in events) Console.WriteLine(ev);   // ... RunEndEvent { S
 ```
 
 The same token reaches node code as **`ctx.CancellationToken`**. An aborted run
-ends with `RunStatus.Aborted`.
+ends with `RunStatus.Aborted` and `AbortReason = "cancelled"` (a
+`CancellationToken` carries no reason). The token can also be passed as the
+`ct` argument of `RunAsync` / `StreamEvents`; the run watches both.
 
 </TabItem>
 </Tabs>
 
-Run `pnpm demo:stream` to see tokens stream and a mid-stream cancel land cleanly.
+Run `pnpm --filter @ilmek/examples demo:stream` (in `ts/`, after a build) to see
+tokens stream and a mid-stream cancel land cleanly.
