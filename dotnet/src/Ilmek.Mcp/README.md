@@ -11,11 +11,12 @@ using Ilmek.Mcp;
 
 var github = await McpToolbox.ConnectAsync(client, new() { Name = "github" });
 github.Tools();                                                          // github__search, …
-var hits = await github.CallAsync(ctx, "github__search", new() { ["q"] = "ilmek" });   // once across resumes
+var hits = await github.CallAsync(ctx, "github__search",
+    new Dictionary<string, object?> { ["q"] = "ilmek" });                // once across resumes
 var skills = await McpSkills.FromPromptsAsync(github);                   // its prompts, as skills
 ```
 
 `McpNodes.Registry(toolboxes)` adds `mcp_tool` and `mcp_resource` node types so
 a stored graph spec can call a server by name. ilmek stays LLM-agnostic: nothing
 here calls a model. Byte-identical to `@ilmek/mcp` (shared fixture in
-`conformance/mcp`).
+`conformance/mcp`). Docs: <https://ilmek.aimtune.dev/mcp>.

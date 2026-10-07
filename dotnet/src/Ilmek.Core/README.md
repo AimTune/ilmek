@@ -9,6 +9,14 @@ engine repeats every side effect before the pause. ilmek wraps each effect in
 it again. An interrupt is just a step whose value comes from a human.
 
 ```csharp
+using Ilmek;
+
+public sealed class CheckoutState
+{
+    public List<string> Cart { get; set; } = [];
+    [Append] public List<string> Log { get; set; } = [];
+}
+
 var g = Graph.Create<CheckoutState>("checkout")
     .Node("checkout", async (state, ctx) =>
     {
@@ -25,5 +33,6 @@ await g.RunAsync(input, opts);      // Interrupted
 await g.ResumeAsync("yes", opts);   // Done
 ```
 
-Spec and docs: <https://github.com/AimTune/ilmek>. Durable storage:
-`Ilmek.Checkpointer.Sqlite`.
+Docs: <https://ilmek.aimtune.dev> · normative spec: [MODEL.md](https://github.com/AimTune/ilmek/blob/main/MODEL.md).
+Durable storage: `Ilmek.Checkpointer.Sqlite`. Integrations: `Ilmek.Skills`,
+`Ilmek.Mcp`, `Ilmek.A2A`.
