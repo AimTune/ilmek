@@ -4,8 +4,8 @@ The .NET port. [../MODEL.md](../MODEL.md) is the spec; this is the developer
 guide.
 
 It passes the same [conformance](../conformance/) list as the TypeScript
-reference — 19 tests, including all 11 non-negotiable scenarios — and its two
-demos print the same output as their TS counterparts. That sameness is what
+reference — all 11 non-negotiable scenarios, plus the shared skills, MCP and A2A
+fixtures — and its two demos print the same output as their TS counterparts. That sameness is what
 having a spec is for.
 
 ## Layout
@@ -57,6 +57,9 @@ the same list of MODEL.md §7 claims — a new backend's tests start by subclass
 ## Durable checkpointing
 
 ```csharp
+using Ilmek;
+using Ilmek.Checkpointers.Sqlite;
+
 using var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
 var paused = await graph.RunAsync(input, new RunOptions { ThreadId = "t1", Checkpointer = cp });
 // …process exits, deploys, comes back…
@@ -73,7 +76,10 @@ cross the file boundary as JSON, so they come back as plain CLR data —
 `Dictionary<string, object?>`, `List<object?>`, `string`, `long`/`double`, `bool`,
 `null`. A custom type journaled into a step or written to a channel returns as its
 JSON shape. Journal what serializes (ids, strings, numbers) and re-resolve richer
-objects from it — the same rule MODEL.md §5.4 already states.
+objects from it — the same rule MODEL.md §5.4 already states. `StepAsync<T>` casts
+the recorded value to `T`, so a step that returns a record or a tuple replays
+from `InMemoryCheckpointer` but fails with `InvalidCastException` once its
+journal has been read back from SQLite.
 
 Targets `net9.0`. No SDK on the machine? `curl -fsSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0`
 installs to `~/.dotnet` without admin rights.
@@ -87,6 +93,8 @@ channel; its reducer lives on the property (a plain property is `last_write`,
 from the class with no restatement:
 
 ```csharp
+using Ilmek;
+
 public sealed class CheckoutState
 {
     public List<string> Cart { get; set; } = [];       // last_write (default)
@@ -105,7 +113,7 @@ var g = Graph.Create<CheckoutState>("checkout")
     .Compile();
 
 Result<CheckoutState> r = await g.RunAsync(input, opts);
-r.State!.Log;   // List<string>, typed all the way out
+List<string> log = r.State!.Log;   // typed all the way out
 ```
 
 It compiles to the same channel map as the untyped builder, so reducers,
@@ -152,7 +160,9 @@ var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 
 | Concept | TypeScript | .NET |
 |---------|------------|------|
-| define graph | `graph(name).channel(…).node(…)` | `Graph.Create(name).Channel(…).Node(…)` |
+| define graph (untyped) | `graph(name).channel(…).node(…)` | `Graph.Create(name).Channel(…).Node(…)` |
+| define graph (typed) | `graph(name, schema).node(…)` | `Graph.Create<TState>(name).Node(…)` — reducers from `[Append]` / `[Merge]` |
+| typed update | the update object itself | `Update.For<TState>().Set(…).Append(…)` · untyped `Update.Of(key, value)` |
 | compile | `.compile()` | `.Compile()` |
 | run | `run(g, input, opts)` | `g.RunAsync(input, opts)` |
 | stream | `stream(g, input, opts)` | `g.StreamEvents(input, opts)` |
@@ -164,16 +174,31 @@ var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 | fan-out (§14) | `send(node, input)` | `new Send(node, input)` |
 | node routing (§15) | `command({update, goto})` | `Command.Create(update, goto)` |
 | retry (§16) | `{ retry: {...} }` | `retry: new RetryPolicy { … }` |
-| projection (§10.1) | `streamModes(...)` | `Streaming.StreamModes(...)` |
-| checkpointer | `interface Checkpointer` | `interface ICheckpointer` |
+| projection (§10.1) | `streamModes` · `projected` · `project` | `Streaming.StreamModes` · `Streaming.Projected` · `Streaming.Project` |
+| open pauses | `pendingInterrupts(cp, threadId)` | `IlmekRuntime.PendingInterruptsAsync(cp, threadId)` |
+| thread state | `threadState(g, cp, threadId)` | `IlmekRuntime.ThreadStateAsync(g, cp, threadId)` |
+| spec round-trip (§9) | `fromSpec(spec, registry)` · `toSpec(g)` | `Spec.FromSpec(spec, registry)` · `Spec.ToSpec(g)` |
+| checkpointer | `interface Checkpointer` · `InMemoryCheckpointer` | `interface ICheckpointer` · `InMemoryCheckpointer` |
+| a thread's journal prefixes | `threadJournalPrefixes(threadId)` | `Checkpoint.ThreadJournalPrefixes(threadId)` |
+| checkpoint id | `generateCheckpointId()` | `Checkpoint.GenerateId()` |
+| cancellation (§10.3) | `signal` → `ctx.signal` | `CancellationToken` → `ctx.CancellationToken` |
+| is it a pause? | `isInterrupt(e)` | `InterruptSignalException.IsInterrupt(ex)` |
+| errors | `GraphError` · `ReducerError` · `RecursionLimitError` · `NondeterminismError` · `ResumeError` | `GraphException` · `ReducerException` · `RecursionLimitException` · `NondeterminismException` · `ResumeException` |
 | entry / exit | `START` · `END` | `Graph.Start` · `Graph.End` |
+
+`taskIdFor(threadId, planId, taskKey)`, the `log` run option (a `Logger`) and the
+`isSend` / `isCommand` / `isToken` guards are TypeScript-only.
 
 Two naming notes, both deliberate:
 
 - The entry points live on **`IlmekRuntime`**, not `Ilmek` — a static class that
   shares its namespace's name binds ambiguously at call sites, because C#
   resolves the namespace first. `GraphExtensions` re-exposes them as extension
-  methods, which is the form to use: `g.RunAsync(...)`.
+  methods, which is the form to use: `g.RunAsync(...)`. For a typed graph
+  (`CompiledGraph<TState>`) the extension methods are the only form, and they
+  return a `Result<TState>`; `IlmekRuntime` takes the untyped `CompiledGraph`,
+  which a typed graph exposes as `g.Inner` (e.g.
+  `IlmekRuntime.ThreadStateAsync(g.Inner, cp, threadId)`).
 - **`InterruptSignalException`** is an exception because the CLR has no other way
   to unwind. It is still ordinary control flow, not a failure — but it means a
   node with a blanket `catch (Exception)` *will* swallow a pause. Rethrow when
@@ -192,4 +217,3 @@ The engine, journal, interrupts, streaming envelope, sends, commands, retries,
 graphs-as-data and the SQLite checkpointer are all here. Still TypeScript-only:
 
 - `Ilmek.Checkpointer.Postgres` — for threads shared across processes
-- ambient context sugar (`AsyncLocal`) over the same explicit `ctx`

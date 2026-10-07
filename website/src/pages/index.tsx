@@ -74,6 +74,7 @@ function HomepageHeader() {
             {`import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
 
 const g = graph("checkout")
+  .channel("log", channel.append<string>())
   .node("checkout", async (state, ctx) => {
     const order = await ctx.step("create_order", () => Orders.create());  // once, ever
     const ok = await ctx.interrupt<string>({ question: "Charge?" });

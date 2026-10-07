@@ -36,12 +36,27 @@ Every implementation emits these, in this order:
 | `step_start { step, tasks }` | superstep begins |
 | `node_start { node, task_id }` | task begins |
 | `custom { payload }` | `ctx.emit(...)` — delivered live, mid-superstep |
+| `node_retry { node, attempt, error }` | a failed task is about to [retry](/control-flow/retry) |
 | `node_end { node, update }` | task returns |
 | `node_error { node, error }` | task raises |
 | `state { channels }` | after REDUCE |
 | `checkpoint { id }` | after CHECKPOINT |
 | `interrupt { pending }` | run halts on a pause |
 | `run_end { status }` | `done` · `interrupted` · `error` · `aborted` |
+
+`run_end` carries what its status needs: the final `state` when `done`, the
+`pending` interrupts when `interrupted`, the `[node, error]` pairs when `error`,
+the `reason` when `aborted`. `run()` / `RunAsync` collect the same stream into a
+result with `status`, `state`, `pending`, `errors`, `abortReason` and every
+`events`.
+
+In TypeScript an event is a plain object with a `type` field and camel-cased
+envelope fields (`runId`, `threadId`, `seq`, `ns`). In .NET each type is its own
+record deriving from `IlmekEvent` — `RunStartEvent`, `StepStartEvent`,
+`NodeStartEvent`, `CustomEvent`, `NodeRetryEvent`, `NodeEndEvent` (its update is
+`StateUpdate`), `NodeErrorEvent`, `StateEvent`, `CheckpointEvent`,
+`InterruptEvent`, `RunEndEvent` (`Status`, `FinalState`, `Pending`, `Errors`,
+`AbortReason`) — so consumers switch on the type.
 
 `interrupt` is a **distinct event type**. Consumers never parse error text or poll
 graph state to discover a pause — the defect this design exists to remove.
@@ -98,11 +113,11 @@ var g = Graph.Create<SupportState>("support")
 var input = Update.For<SupportState>().Append(s => s.Messages, "hello");
 
 // full event stream
-await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
+await foreach (var ev in g.StreamEvents(input)) Console.WriteLine(ev);
 
 // projected into LangGraph-style mode views — see the next page
 await foreach (var part in Streaming.Projected(
-    IlmekRuntime.Stream(g, input),
+    g.StreamEvents(input),
     new[] { StreamMode.Messages, StreamMode.Updates })) { /* … */ }
 ```
 

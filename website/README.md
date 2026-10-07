@@ -18,7 +18,7 @@ pnpm start          # dev server with hot reload at http://localhost:3000
 ## Build
 
 ```bash
-pnpm build          # static site into ./build
+pnpm build          # static site into ./build — fails on a broken link or anchor
 pnpm serve          # preview the production build locally
 ```
 
@@ -37,6 +37,7 @@ docs/                content — one folder per sidebar category
   streaming/         events, projection modes, tokens & cancellation
   checkpointers/     overview, sqlite, postgres
   reference/         spec, conformance, versioning
+  *.mdx              intro, getting-started, concepts, graphs-as-data, skills, mcp, a2a
 src/pages/index.tsx  the landing page
 sidebars.ts          sidebar tree
 docusaurus.config.ts site config (url, navbar, footer, theme)

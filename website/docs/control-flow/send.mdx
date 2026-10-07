@@ -53,7 +53,7 @@ const g = graph("fanout", FanState)
   .compile();
 
 const { status, state } = await run(g, { items: ["red", "green", "blue"] });
-console.log(status, state.results);   // "done" [ "RED", "GREEN", "BLUE", "collected 3" ]
+console.log(status, state?.results);   // "done" [ "RED", "GREEN", "BLUE", "collected 3" ]
 ```
 
 </TabItem>
@@ -93,7 +93,7 @@ var g = Graph.Create<FanState>("fanout")
     .Compile();
 
 var input = Update.For<FanState>().Set(s => s.Items, new List<string> { "red", "green", "blue" });
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]");
 ```
 
@@ -152,7 +152,7 @@ const g = graph("late-fanout", FanState)
   .compile();
 
 const { status, state } = await run(g, { topic: "red green blue" });
-console.log(status, state.results);   // "done" [ "RED", "GREEN", "BLUE" ]
+console.log(status, state?.results);   // "done" [ "RED", "GREEN", "BLUE" ]
 ```
 
 </TabItem>
@@ -188,7 +188,7 @@ var g = Graph.Create<FanState>("late-fanout")
     .Compile();
 
 var input = Update.For<FanState>().Set(s => s.Topic, "red green blue");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]");
 ```
 

@@ -51,26 +51,75 @@ first use, so there is no separate setup step.
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-import { run } from "@ilmek/core";
+import { run, resume } from "@ilmek/core";
 import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
 
 const cp = await SqliteCheckpointer.open("./agent.db");   // creates + migrates
-await run(graph, input, { threadId, checkpointer: cp });
+const paused = await run(graph, input, { threadId, checkpointer: cp });
+
+// …the process restarts; a fresh checkpointer on the same file picks the pause up…
+const cp2 = await SqliteCheckpointer.open("./agent.db");
+const done = await resume(graph, "yes", { threadId, checkpointer: cp2 });
 ```
+
+`SqliteCheckpointer.open(path = ":memory:", opts?)` is async because it loads
+`node:sqlite` lazily. `":memory:"` gives an ephemeral store — handy in tests,
+though it defeats the point of a durable backend.
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
 using Ilmek;
+using Ilmek.Checkpointers.Sqlite;
 
-var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
-var opts = new RunOptions { ThreadId = threadId, Checkpointer = cp };
-await IlmekRuntime.RunAsync(graph, input, opts);
+using var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
+var paused = await graph.RunAsync(input, new RunOptions { ThreadId = threadId, Checkpointer = cp });
+
+// …the process restarts; a fresh checkpointer on the same file picks the pause up…
+using var cp2 = SqliteCheckpointer.Open("./agent.db");
+var done = await graph.ResumeAsync("yes", new RunOptions { ThreadId = threadId, Checkpointer = cp2 });
+```
+
+`SqliteCheckpointer.Open(path = ":memory:", options?)` opens and owns its
+connection; dispose the checkpointer to close it — disposing also clears the
+connection pool, so the file is released (on Windows it could not be moved or
+deleted otherwise). The checkpointer serializes access to its connection, so one
+instance is safe to share across the parallel tasks of a superstep.
+
+</TabItem>
+</Tabs>
+
+## Options
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
+
+const cp = await SqliteCheckpointer.open("./shared.db", { tablePrefix: "billing", wal: true });
+// → billing_checkpoints, billing_journals
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek.Checkpointers.Sqlite;
+
+using var cp = SqliteCheckpointer.Open("./shared.db",
+    new SqliteCheckpointerOptions { TablePrefix = "billing", Wal = true });
+// → billing_checkpoints, billing_journals
 ```
 
 </TabItem>
 </Tabs>
+
+| option | default | meaning |
+|---|---|---|
+| `tablePrefix` / `TablePrefix` | `"ilmek"` | table-name prefix, so several apps can share one file. It becomes part of a table name, so it must be a plain SQL identifier (letters, digits and `_`, not starting with a digit); anything else is refused when the checkpointer is constructed. |
+| `wal` / `Wal` | `true` | write-ahead logging — survives a hard kill better and lets a reader run while a run is writing. Ignored for `:memory:`. |
 
 ## Bring your own driver
 
@@ -79,21 +128,40 @@ await IlmekRuntime.RunAsync(graph, input, opts);
 
 It talks to a **duck-typed** database (`exec` / `prepare`), so
 [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) drops in unchanged
-if you would rather use it than the built-in module.
+if you would rather use it than the built-in module. Construct the checkpointer
+over your own handle; the tables are created on first use (or call `migrate()`
+yourself):
+
+```ts
+import Database from "better-sqlite3";
+import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
+
+const cp = new SqliteCheckpointer(new Database("./agent.db"), { tablePrefix: "ilmek" });
+```
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 
 `SqliteCheckpointer.Open(path)` manages its own connection. To control the
 connection yourself — pooling, a shared cache, an in-memory database — construct
-it from a `SqliteConnection` instead:
+it from an open `SqliteConnection` instead. You keep ownership: disposing the
+checkpointer leaves your connection alone, and the tables are created on first
+use (or call `Migrate()` yourself).
 
 ```csharp
+using Ilmek.Checkpointers.Sqlite;
+using Microsoft.Data.Sqlite;
+
+using var connection = new SqliteConnection("Data Source=./agent.db");
+connection.Open();
 var cp = new SqliteCheckpointer(connection);
 ```
 
 </TabItem>
 </Tabs>
+
+Values cross the file boundary as JSON. In .NET they come back as plain CLR data
+— see [Serializable values](/model/journal#serializable-values).
 
 ## When to reach for Postgres instead
 

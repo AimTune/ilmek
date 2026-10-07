@@ -85,10 +85,11 @@ and hand it to the run, and nothing else in your graph code changes.
 
 ```csharp
 using Ilmek;
+using Ilmek.Checkpointers.Sqlite;
 
-var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
+using var cp = SqliteCheckpointer.Open("./agent.db");   // creates + migrates
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = cp };
-await IlmekRuntime.RunAsync(g, input, opts);
+await g.RunAsync(input, opts);
 ```
 
 </TabItem>
@@ -108,13 +109,7 @@ new PostgresCheckpointer(pool, { tablePrefix: "billing" });
 
 The prefix becomes part of a table name, so it must be a plain SQL identifier
 (letters, digits and `_`, not starting with a digit); anything else is refused
-when the checkpointer is constructed.
-
-:::note jsonb and U+0000
-Postgres `jsonb` cannot store the NUL character, so a checkpoint or step value
-containing that character fails to write. Strip or encode NULs before they reach state
-or a step result if your data can contain them.
-:::
+when the checkpointer is constructed. The default is `"ilmek"`.
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
@@ -126,9 +121,46 @@ app gives you the same isolation today.
 </TabItem>
 </Tabs>
 
+## Values Postgres cannot store
+
+Checkpoints and journals live in `jsonb` columns, and `jsonb` cannot hold the NUL
+character (U+0000): a checkpoint, interrupt payload, answer or step value that
+contains one fails to write, with Postgres' `unsupported Unicode escape sequence`
+error. Strip or encode NULs before they reach state or a step result if your data
+can contain them. The SQLite checkpointer has no such limit.
+
 ## Bring your own client
 
 The checkpointer never opens or closes a connection — you own the `Pool`'s
 lifecycle. Any object with `query(text, params) => { rows }` satisfies its
 `SqlClient` interface, so a custom pool or a proxied client works as long as it
-speaks that shape.
+speaks that shape. That includes [PGlite](https://pglite.dev) — Postgres compiled
+to WASM, running in-process — which is handy for tests:
+
+```ts
+import { PGlite } from "@electric-sql/pglite";
+import { PostgresCheckpointer, type SqlClient } from "@ilmek/checkpoint-postgres";
+
+const cp = new PostgresCheckpointer(new PGlite() as unknown as SqlClient);
+await cp.migrate();
+```
+
+## Testing the package
+
+The package's own suite runs the shared checkpointer contract against real
+Postgres SQL through PGlite (a dev dependency), plus a fake client for the wire
+contract — no database needed:
+
+```bash
+cd ts && pnpm install && pnpm build
+pnpm --filter @ilmek/checkpoint-postgres test
+```
+
+A live smoke test against a real server is skipped unless `DATABASE_URL` is set.
+It imports `pg`, which is not a dependency of the package, so make `pg`
+resolvable first (for example `pnpm --filter @ilmek/checkpoint-postgres add -D pg`,
+without committing it):
+
+```bash
+DATABASE_URL=postgres://user:pass@localhost:5432/ilmek_test pnpm --filter @ilmek/checkpoint-postgres test
+```

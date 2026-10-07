@@ -168,13 +168,63 @@ Pass `{ intro: null }` / `intro: null` to render the block alone, or your own
 intro sentence to change what the model is told about it. An empty catalog
 renders `""`.
 
+### Bundled files: what is listed, what can be read
+
+`skill.resources` (`Skill.Resources`) lists every file in the skill folder as a
+sorted, `/`-separated relative path — except `SKILL.md` itself and dot-entries
+(`.git`, `.DS_Store`, …). Symbolic links (and, on Windows, junctions) are
+followed only when their real target stays **strictly inside** the skill folder;
+a link that points outside it, or a broken one, is left out, so the list never
+advertises a file `readResource` would refuse. Each real directory is walked
+once and listed under its real path first, so a link back to the folder or one
+of its ancestors cannot make the walk recurse forever.
+
+`readResource(name, path)` / `ReadResourceAsync(name, path)` is the one call a
+model's input reaches, so `path` is confined to the skill folder. Refused, each
+with `code: "outside_skill"`:
+
+- a path with a `..` segment that leaves the folder, or that resolves to the
+  folder itself;
+- an absolute path — `/etc/passwd`, and on Windows `C:\…`, a drive-relative
+  `C:file`, or a UNC `\\server\share\…` path;
+- a path whose **real** location — after resolving symlinks and junctions on the
+  way — is outside the folder, even if it looks relative and harmless;
+- a path containing a NUL character.
+
+A skill built from an object rather than a folder has no files: reading from it
+fails with `no_resources`. A path that is inside the folder but does not exist
+fails with the platform's own file-not-found error.
+
+### Error codes
+
+Every refusal is a `SkillParseError` (`SkillParseException` in .NET) with a
+stable `code` (`Code`):
+
+| code | raised when |
+|---|---|
+| `not_a_skill` | `loadSkill(dir)` on a folder with no `SKILL.md` |
+| `missing_frontmatter` | `SKILL.md` does not start with a `---` frontmatter block |
+| `invalid_name` / `name_mismatch` | `name` breaks the naming rule / differs from the folder name |
+| `invalid_description` | `description` is missing, empty or over 1024 characters |
+| `invalid_field` | `license`, `compatibility`, `allowed-tools` or `metadata` has the wrong shape |
+| `duplicate_skill` | two skills with one name in a single catalog |
+| `unknown_skill` | `readResource` names a skill the catalog does not hold |
+| `no_resources` | `readResource` on an inline skill |
+| `outside_skill` | `readResource` with a path that leaves the skill folder (above) |
+
+The frontmatter reader adds its own: `unterminated_frontmatter`, `duplicate_key`,
+`bad_indentation`, `bad_structure`, and `unsupported` for the YAML it refuses
+(anchors, tags, sequences of mappings, …).
+
 ### Several roots, inline skills
 
 `fromDirectories([sharedDir, projectDir])` reads roots in order and a later
 root's skill **replaces** an earlier one of the same name — project skills over
-shared ones. A folder without a `SKILL.md` is skipped; a folder *with* a
-malformed one throws, so a broken skill fails loudly instead of vanishing from
-the catalog.
+shared ones. A root that does not exist holds no skills. A folder without a
+`SKILL.md` is skipped; a folder *with* a malformed one throws, so a broken skill
+fails loudly instead of vanishing from the catalog. Pass `{ strictName: false }`
+(`strictName: false` in .NET) to load folders whose name differs from the
+skill's.
 
 A catalog can also be built from objects — for tests, or for skills that live in
 a database rather than on disk:
@@ -227,7 +277,7 @@ An unknown skill name fails when the graph is built, not mid-run.
 
 ```ts
 import { END, fromSpec, run, START } from "@ilmek/core";
-import type { GraphSpec } from "@ilmek/core";
+import type { GraphSpec, NodeRegistry } from "@ilmek/core";
 import { SkillCatalog, skillNodes } from "@ilmek/skills";
 
 const skills = await SkillCatalog.fromDirectories(["./skills"]);
@@ -247,10 +297,10 @@ const spec: GraphSpec = {
   ],
 };
 
-const registry = {
+const registry: NodeRegistry = {
   ...skillNodes(skills),
   // Stand-in for an LLM node: it reads the instructions the skill node wrote.
-  echo: () => (state: { input: string; system: string }) => ({ reply: `[${state.system}] ${state.input}` }),
+  echo: () => (state) => ({ reply: `[${state.system}] ${state.input}` }),
 };
 
 const g = fromSpec(spec, registry).compile();

@@ -21,4 +21,4 @@ and `skills` node types so a stored graph spec can load one by name.
 
 ilmek stays LLM-agnostic: nothing here calls a model. A host (mekik, your own
 agent loop) decides how the catalog reaches the prompt and how a `load_skill`
-tool hands instructions back.
+tool hands instructions back. Docs: <https://ilmek.aimtune.dev/skills>.
