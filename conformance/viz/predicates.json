@@ -1,0 +1,33 @@
+{
+  "spec": {
+    "name": "predicates",
+    "channels": {
+      "intent": { "reducer": "last_write" },
+      "count": { "reducer": "last_write" },
+      "items": { "reducer": "append" },
+      "flags": { "reducer": "merge" }
+    },
+    "nodes": [
+      { "id": "triage", "type": "noop" },
+      { "id": "buy", "type": "noop" },
+      { "id": "refund", "type": "noop" },
+      { "id": "big", "type": "noop" },
+      { "id": "small", "type": "noop" },
+      { "id": "has_items", "type": "noop" },
+      { "id": "empty", "type": "noop" },
+      { "id": "odd", "type": "noop" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "triage" },
+      { "from": "triage", "to": "buy", "when": { "channel": "intent", "eq": "buy" } },
+      { "from": "triage", "to": "refund", "when": { "channel": "intent", "in": ["refund", "return", 3, true, null] } },
+      { "from": "triage", "to": "big", "when": { "channel": "count", "gt": 10 } },
+      { "from": "triage", "to": "small", "when": { "channel": "count", "lt": 2.5 } },
+      { "from": "triage", "to": "has_items", "when": { "channel": "items", "truthy": true } },
+      { "from": "triage", "to": "empty", "when": { "channel": "items", "truthy": false } },
+      { "from": "triage", "to": "odd", "when": { "channel": "intent", "neq": "say \"hi\" #1 <b>`x`</b>" } },
+      { "from": "buy", "to": "__end__" }
+    ]
+  },
+  "options": { "direction": "LR" }
+}

@@ -128,3 +128,90 @@ runs both.
 Because the round-trip `compile(spec) → toSpec()` is a conformance test, a builder
 that reads and writes this document can trust the engine to preserve exactly what
 it stored.
+
+## Visualizing a stored spec
+
+A builder needs to show the graph it is editing. `toMermaid(spec)`
+(`Spec.ToMermaid(spec)` in .NET) renders a stored spec as a Mermaid flowchart
+straight from the document, with no registry and no build step. Each predicate
+becomes the label of its edge:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { toMermaid, START, END } from "@ilmek/core";
+import type { GraphSpec } from "@ilmek/core";
+
+/** A stored document, straight from the builder's table. */
+const spec: GraphSpec = {
+  name: "support",
+  channels: { messages: { reducer: "append" }, intent: { reducer: "last_write" } },
+  nodes: [
+    { id: "agent", type: "llm" },
+    { id: "checkout", type: "http" },
+    { id: "answer", type: "llm" },
+  ],
+  edges: [
+    { from: START, to: "agent" },
+    { from: "agent", to: "checkout", when: { channel: "intent", eq: "buy" } },
+    { from: "agent", to: "answer", when: { channel: "intent", neq: "buy" } },
+    { from: "checkout", to: END },
+    { from: "answer", to: END },
+  ],
+};
+
+console.log(toMermaid(spec));
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+// A stored document, straight from the builder's table.
+var spec = new GraphSpec
+{
+    Name = "support",
+    Channels = new Dictionary<string, SpecChannel>
+    {
+        ["messages"] = new("append"),
+        ["intent"] = new("last_write"),
+    },
+    Nodes = new[] { new SpecNode("agent", "llm"), new SpecNode("checkout", "http"), new SpecNode("answer", "llm") },
+    Edges = new[]
+    {
+        new SpecEdge(Graph.Start, "agent"),
+        new SpecEdge("agent", "checkout", new SpecPredicate { Channel = "intent", Eq = "buy" }),
+        new SpecEdge("agent", "answer", new SpecPredicate { Channel = "intent", Neq = "buy" }),
+        new SpecEdge("checkout", Graph.End),
+        new SpecEdge("answer", Graph.End),
+    },
+};
+
+Console.WriteLine(Spec.ToMermaid(spec));
+```
+
+</TabItem>
+</Tabs>
+
+```mermaid
+flowchart TD
+  __start__([START])
+  agent["agent"]
+  checkout["checkout"]
+  answer["answer"]
+  __end__([END])
+  __start__ --> agent
+  agent -->|"intent == #quot;buy#quot;"| checkout
+  agent -->|"intent != #quot;buy#quot;"| answer
+  checkout --> __end__
+  answer --> __end__
+```
+
+Rendering is pure and deterministic. A spec gives byte-identical text in both
+languages, and the same text as the graph built from it. The shared fixture under
+[`conformance/viz`](/reference/conformance#companion-fixtures) checks this. See
+[Visualizing a graph](/model/graph#visualizing-a-graph) for how to read the
+diagram, the options, and highlighting a thread.

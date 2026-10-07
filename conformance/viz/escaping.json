@@ -1,0 +1,29 @@
+{
+  "spec": {
+    "name": "escaping",
+    "channels": {},
+    "nodes": [
+      { "id": "fetch:docs", "type": "noop" },
+      { "id": "end", "type": "noop" },
+      { "id": "my node", "type": "noop" },
+      { "id": "n0", "type": "noop" },
+      { "id": "Subgraph", "type": "noop" },
+      { "id": "a-b", "type": "noop" },
+      { "id": "say \"#1\"", "type": "noop" },
+      { "id": "çay", "type": "noop" },
+      { "id": "_ok_1", "type": "noop" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "fetch:docs" },
+      { "from": "fetch:docs", "to": "end" },
+      { "from": "end", "to": "my node" },
+      { "from": "my node", "to": "n0" },
+      { "from": "n0", "to": "Subgraph" },
+      { "from": "Subgraph", "to": "a-b" },
+      { "from": "a-b", "to": "say \"#1\"" },
+      { "from": "say \"#1\"", "to": "çay" },
+      { "from": "çay", "to": "_ok_1" },
+      { "from": "_ok_1", "to": "__end__" }
+    ]
+  }
+}

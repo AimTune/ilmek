@@ -29,6 +29,9 @@ const config: Config = {
     // Parse .md as CommonMark unless a file opts into MDX (JSX/.mdx). Keeps
     // `<TState>`, `{ node: update }` etc. in prose/tables from being read as JSX.
     format: "detect",
+    // ```mermaid blocks render as diagrams — the ones in the docs are toMermaid()
+    // output for the example graph next to them.
+    mermaid: true,
     hooks: {
       onBrokenMarkdownLinks: "warn",
       onBrokenMarkdownImages: "warn",
@@ -39,6 +42,8 @@ const config: Config = {
     defaultLocale: "en",
     locales: ["en"],
   },
+
+  themes: ["@docusaurus/theme-mermaid"],
 
   presets: [
     [

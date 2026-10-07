@@ -176,6 +176,9 @@ text** (`when` is a declarative predicate, no eval path), and `toSpec()`
 **refuses** to serialize what a document cannot honestly hold — a code router, an
 anonymous node type, a hand-written guard.
 
+To see a graph, `toMermaid(g)` (or `toMermaid(spec)`) renders it as a Mermaid
+flowchart. Pass a checkpoint as `highlight` to mark where a thread is parked.
+
 ## Control flow & resilience
 
 Beyond static edges and routers, three primitives cover dynamic agent shapes
@@ -241,6 +244,7 @@ TypeScript 176 tests (`cd ts && pnpm check`), .NET 28 (`cd dotnet && dotnet test
 | streaming: `seq`/`ns` envelope, projection modes, tokens, abort (§10) | ✅ | ✅ |
 | fan-out `send` (§14), node-directed `command` (§15), safe `retry` (§16) | ✅ | ✅ |
 | graphs-as-data round-trip + declarative predicates (§9) | ✅ | ✅ |
+| Mermaid export of graphs and specs, thread highlighting (§9.1; shared fixture in `conformance/viz`) | ✅ | ✅ |
 | in-memory checkpointer (in core) | ✅ | ✅ |
 | **SQLite** checkpointer — durable, single file | ✅ | ✅ |
 | **Postgres** checkpointer | ✅ | ⬜ |

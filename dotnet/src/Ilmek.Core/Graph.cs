@@ -24,7 +24,12 @@ public delegate IEnumerable<object> RouterFn(State state, IContext ctx);
 public sealed record GraphNode(string Id, NodeFn Fn, RetryPolicy? Retry, string? Type, IReadOnlyDictionary<string, object?> Config);
 
 /// <summary>Exactly one of <see cref="To"/> (static, optionally guarded) or <see cref="Router"/> is set.</summary>
-public sealed record GraphEdge(string From, string? To, GuardFn? When, RouterFn? Router, SpecPredicate? SpecWhen);
+/// <param name="Targets">
+/// The nodes a router says it may return — metadata for <see cref="CompiledGraph.ToMermaid"/>,
+/// not enforced. Null when the router declared none.
+/// </param>
+public sealed record GraphEdge(string From, string? To, GuardFn? When, RouterFn? Router, SpecPredicate? SpecWhen,
+    IReadOnlyList<string>? Targets = null);
 
 /// <summary>A validated, frozen graph (MODEL.md §3).</summary>
 public sealed class CompiledGraph
@@ -57,6 +62,9 @@ public sealed class CompiledGraph
         }
         return new State(result);
     }
+
+    /// <summary>Render this graph as a Mermaid flowchart (MODEL.md §9.1).</summary>
+    public string ToMermaid(MermaidOptions? options = null) => Mermaid.Render(this, options);
 }
 
 /// <summary>
@@ -132,10 +140,15 @@ public sealed class Graph
         return this;
     }
 
-    /// <summary>A conditional edge returning the target name(s) — and/or sends — at plan time.</summary>
-    public Graph Router(string from, RouterFn fn)
+    /// <summary>
+    /// A conditional edge returning the target name(s) — and/or sends — at plan time.
+    /// <paramref name="targets"/> lists the nodes (or <see cref="End"/>) it may return,
+    /// send targets included, so <see cref="CompiledGraph.ToMermaid"/> can draw them;
+    /// the engine does not restrict the router to them.
+    /// </summary>
+    public Graph Router(string from, RouterFn fn, IReadOnlyList<string>? targets = null)
     {
-        _edges.Add(new GraphEdge(from, null, null, fn, null));
+        _edges.Add(new GraphEdge(from, null, null, fn, null, targets?.ToArray()));
         return this;
     }
 
@@ -148,6 +161,9 @@ public sealed class Graph
                 throw new GraphException($"edge from unknown node \"{edge.From}\"");
             if (edge.To is not null && edge.To != End && !_nodes.ContainsKey(edge.To))
                 throw new GraphException($"edge \"{edge.From}\" -> unknown node \"{edge.To}\"");
+            foreach (var t in edge.Targets ?? Array.Empty<string>())
+                if (t != End && !_nodes.ContainsKey(t))
+                    throw new GraphException($"router on \"{edge.From}\" declares unknown target \"{t}\"");
         }
 
         if (!_edges.Any(e => e.From == Start))

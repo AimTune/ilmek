@@ -24,7 +24,7 @@ disagree, MODEL.md wins.
 | 6 | Interrupts & resume (HITL) | [Interrupts & resume](/model/interrupts) |
 | 7 | Checkpointer — the memory port | [Checkpointers](/checkpointers/overview) |
 | 8 | Context | [The journal](/model/journal) |
-| 9 | Graphs as data | [Graphs as data](/graphs-as-data) |
+| 9 | Graphs as data (9.1 visualization) | [Graphs as data](/graphs-as-data), [Visualizing a graph](/model/graph#visualizing-a-graph) |
 | 10 | Events | [Streaming](/streaming/overview) |
 | 11 | Surface — canonical names per language | [below](#surface) |
 | 12 | Conformance | [Conformance](/reference/conformance) |
@@ -46,6 +46,7 @@ The same concepts, spelled to each language's idiom (MODEL.md §11):
 | run | `run(g, input, opts): Promise<Result>` | `g.RunAsync(input, opts): Task<Result>` |
 | resume (one pause) | `resume(g, answer, opts)` | `g.ResumeAsync(answer, opts)` |
 | resume (by id) | `resumeKeyed(g, answers, opts)` | `g.ResumeKeyedAsync(answers, opts)` |
+| visualize | `toMermaid(g \| spec, opts)` | `g.ToMermaid(opts)` · `Spec.ToMermaid(spec, opts)` |
 
 Two reserved node names — `START` (`__start__`) and `END` (`__end__`) — are
 implicit in every language.

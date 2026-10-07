@@ -1,0 +1,18 @@
+{
+  "spec": {
+    "name": "support",
+    "channels": { "messages": { "reducer": "append" }, "intent": { "reducer": "last_write" } },
+    "nodes": [
+      { "id": "agent", "type": "llm" },
+      { "id": "checkout", "type": "http" },
+      { "id": "answer", "type": "llm" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "agent" },
+      { "from": "agent", "to": "checkout", "when": { "channel": "intent", "eq": "buy" } },
+      { "from": "agent", "to": "answer", "when": { "channel": "intent", "neq": "buy" } },
+      { "from": "checkout", "to": "__end__" },
+      { "from": "answer", "to": "__end__" }
+    ]
+  }
+}

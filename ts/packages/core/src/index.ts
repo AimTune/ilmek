@@ -80,7 +80,11 @@ export type {
     RouterFn,
     NodeOptions,
     EdgeOptions,
+    RouterOptions,
 } from "./graph.ts";
+
+export { toMermaid } from "./mermaid.ts";
+export type { MermaidDirection, MermaidHighlight, MermaidOptions } from "./mermaid.ts";
 
 export { Journal, TaskJournal } from "./journal.ts";
 export type { JournalDump, JournalEntry, PendingEntry } from "./journal.ts";

@@ -117,6 +117,12 @@ public static class Spec
         return new GraphSpec { Name = g.Name, Channels = channels, Nodes = nodes, Edges = edges };
     }
 
+    /// <summary>
+    /// Render a stored spec as a Mermaid flowchart (MODEL.md §9.1) — no registry
+    /// needed. Byte-identical to rendering the graph built from it.
+    /// </summary>
+    public static string ToMermaid(GraphSpec spec, MermaidOptions? options = null) => Mermaid.Render(spec, options);
+
     private static NodeFn BuildNode(SpecNode node, IReadOnlyDictionary<string, NodeBuilder> registry)
     {
         // A document deserialized from JSON can carry a null type despite the

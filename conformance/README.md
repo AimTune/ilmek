@@ -39,6 +39,10 @@ compared with `skills/expected.json` as canonical JSON. See
 (`@ilmek/a2a` / `Ilmek.A2A`) reduces the scripted agent in [a2a/](a2a/) to
 `a2a/expected.json`; see [a2a/README.md](a2a/README.md).
 
+The Mermaid export (`toMermaid` / `ToMermaid`, MODEL.md §9.1) renders each case
+under [viz/](viz/) to its `.mmd` file byte for byte, in both languages; see
+[viz/README.md](viz/README.md).
+
 ## Why a list and not a shared harness (yet)
 
 Each language runs its own harness against its own idioms — Node's `node:test`,

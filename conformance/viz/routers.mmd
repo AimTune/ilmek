@@ -1,0 +1,23 @@
+flowchart TD
+  __start__([START])
+  plan["plan"]
+  tools["tools"]
+  respond["respond"]
+  worker["worker"]
+  r0["r0"]
+  audit["audit"]
+  r0_{"?"}
+  r1{"?"}
+  __end__([END])
+  __start__ --> plan
+  tools --> plan
+  worker --> respond
+  respond --> __end__
+  plan -.-> tools
+  plan -.-> worker
+  plan -.-> respond
+  plan -.-> __end__
+  respond -.-> r0_
+  r0 -.-> r1
+  plan -.->|"guard"| audit
+  audit -.->|"guard"| r0

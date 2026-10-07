@@ -1,0 +1,20 @@
+flowchart LR
+  __start__([START])
+  triage["triage"]
+  buy["buy"]
+  refund["refund"]
+  big["big"]
+  small["small"]
+  has_items["has_items"]
+  empty["empty"]
+  odd["odd"]
+  __end__([END])
+  __start__ --> triage
+  triage -->|"intent == #quot;buy#quot;"| buy
+  triage -->|"intent in [#quot;refund#quot;, #quot;return#quot;, 3, true, null]"| refund
+  triage -->|"count #gt; 10"| big
+  triage -->|"count #lt; 2.5"| small
+  triage -->|"truthy(items)"| has_items
+  triage -->|"not truthy(items)"| empty
+  triage -->|"intent != #quot;say \#quot;hi\#quot; #35;1 #lt;b#gt;#96;x#96;#lt;/b#gt;#quot;"| odd
+  buy --> __end__

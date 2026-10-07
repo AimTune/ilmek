@@ -62,7 +62,7 @@ const g = graph("shout", ShoutState)
       : command({ goto: END }))                                              // then finish
   .edge(START, "plan")
   // §14 send — one worker task per word, each with its OWN input
-  .router("plan", (state) => state.words.map((word, i) => send("worker", { word, failsFor: i })))
+  .router("plan", (state) => state.words.map((word, i) => send("worker", { word, failsFor: i })), { targets: ["worker"] })
   .edge("worker", "gate")
   .compile();
 
@@ -122,7 +122,8 @@ var g = Graph.Create<ShoutState>("shout")
         : Command.Goto_(Graph.End))         // then finish
     .Edge(Graph.Start, "plan")
     // §14 send — one worker task per word, each with its OWN input
-    .Router("plan", (state, ctx) => state.Words.Select((word, i) => (object)new Send("worker", new Job { Word = word, FailsFor = i })))
+    .Router("plan", (state, ctx) => state.Words.Select((word, i) => (object)new Send("worker", new Job { Word = word, FailsFor = i })),
+        targets: new[] { "worker" })
     .Edge("worker", "gate")
     .Compile();
 
@@ -133,5 +134,20 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Shouted)}]
 
 </TabItem>
 </Tabs>
+
+As [`toMermaid(g)`](/model/graph#visualizing-a-graph) draws it. The dashed edge is
+the router's `send` fan-out. `gate` routes with a `command`, which is decided
+inside the node, so it has no outgoing edge in the picture:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  plan["plan"]
+  worker["worker"]
+  gate["gate"]
+  __start__ --> plan
+  plan -.-> worker
+  worker --> gate
+```
 
 `pnpm demo:mapreduce` runs all three together.
