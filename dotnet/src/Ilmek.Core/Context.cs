@@ -143,12 +143,29 @@ internal sealed class NodeContext : IContext
     public ValueTask<T> StepAsync<T>(string key, Func<T> fn) =>
         StepAsync(key, () => new ValueTask<T>(fn()));
 
+    /// <summary>
+    /// A journaled value as the <typeparamref name="T"/> the node asked for. In memory
+    /// it is the very object that was recorded; from a durable checkpointer it is
+    /// JSON-shaped data, converted back through <see cref="JournalJson"/>.
+    /// </summary>
+    private static T Replayed<T>(string what, string key, object? value)
+    {
+        try
+        {
+            return JournalJson.ConvertTo<T>(value);
+        }
+        catch (InvalidCastException ex)
+        {
+            throw new InvalidCastException($"{what} \"{key}\" replayed a value that cannot be read as the requested type — {ex.Message}", ex);
+        }
+    }
+
     public async ValueTask<T> StepAsync<T>(string key, Func<ValueTask<T>> fn)
     {
         var full = _tj.ResolveKey(key);
         var entry = _tj.Journal.Fetch(full);
 
-        if (entry is { Done: true }) return (T)entry.Value!;
+        if (entry is { Done: true }) return Replayed<T>("step", full, entry.Value);
         if (entry is { Done: false })
         {
             throw new NondeterminismException(
@@ -167,7 +184,7 @@ internal sealed class NodeContext : IContext
         var full = _tj.ResolveKey(key);
         var entry = _tj.Journal.Fetch(full);
 
-        if (entry is { Done: true }) return (T)entry.Value!;
+        if (entry is { Done: true }) return Replayed<T>("interrupt", full, entry.Value);
         if (entry is { Done: false }) throw new InterruptSignalException(full, entry.Payload);
 
         if (_checkpointer is null)

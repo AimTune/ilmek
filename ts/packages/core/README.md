@@ -15,6 +15,10 @@ npm install @ilmek/core
 ```ts
 import { graph, channel, START, END, run, resume, InMemoryCheckpointer } from "@ilmek/core";
 
+// Stand-in services — swap for your real order + payment code.
+const Orders = { create: () => ({ id: "ord-9001", total: 249.9 }) };
+const Payments = { charge: (order: { id: string }, ok: string) => "charged" };
+
 const g = graph("checkout")
     .channel("log", channel.append<string>())
     .node("checkout", async (state, ctx) => {
@@ -31,5 +35,6 @@ await run(g, {}, opts);        // { status: "interrupted" }
 await resume(g, "yes", opts);  // { status: "done" }
 ```
 
-Full docs and the normative spec: <https://github.com/AimTune/ilmek>.
+Docs: <https://ilmek.aimtune.dev> · normative spec: [MODEL.md](https://github.com/AimTune/ilmek/blob/main/MODEL.md).
 Durable checkpointers: `@ilmek/checkpoint-sqlite`, `@ilmek/checkpoint-postgres`.
+Integrations: `@ilmek/skills`, `@ilmek/mcp`, `@ilmek/a2a`.

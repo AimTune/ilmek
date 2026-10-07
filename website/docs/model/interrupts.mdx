@@ -80,8 +80,8 @@ var g = Graph.Create<SupportState>("support")
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 
 var buy = Update.For<SupportState>().Append(s => s.Messages, "buy");
-var paused = await IlmekRuntime.RunAsync(g, buy, opts);        // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);   // Status: Done
+var paused = await g.RunAsync(buy, opts);        // Status: Interrupted
+var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 ```
 
 </TabItem>
@@ -116,9 +116,18 @@ carries two handles:
 | `key` | the task (`"interrupt#0"`) | addressing the journal entry |
 | `id` | the thread (`"<node>:<key>"`) | addressing the pause from outside |
 
+For a task started by a [`send`](/control-flow/send), the node part of the `id`
+is its task key, so two fan-out branches pausing in the same superstep get
+distinct ids: `worker#0:interrupt#0`, `worker#1:interrupt#0`. A pending
+interrupt also carries `taskId`, `node` and the `payload` the node passed.
+
 **Resume answers must be keyed by `id`.** Keying by `key` looks fine until the
 first concurrent pause, then silently drops an answer and hands both nodes the
 same one — a data-corruption bug with no error.
+
+A second argument names the key yourself — `ctx.interrupt(payload, "approve")`
+journals `approve#0` — which makes the `id` readable (`confirm:approve#0`) and is
+how a loop gives each pause a [stable key](/model/journal#keys).
 
 ## Two resume forms
 
@@ -192,13 +201,97 @@ var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryChe
 
 // One interrupt is pending at a time, so the bare-answer form stays safe
 // even though the node pauses twice.
-await IlmekRuntime.RunAsync(g, new DangerState(), opts);   // halts on interrupt#0
-await IlmekRuntime.ResumeAsync(g, "yes", opts);            // answers #0, halts on interrupt#1
-var done = await IlmekRuntime.ResumeAsync(g, "yes", opts); // answers #1 → Status: Done
+await g.RunAsync(null, opts);                  // halts on interrupt#0
+await g.ResumeAsync("yes", opts);              // answers #0, halts on interrupt#1
+var done = await g.ResumeAsync("yes", opts);   // answers #1 → Status: Done
 ```
 
 </TabItem>
 </Tabs>
+
+When several pauses are open at once — two nodes pausing in the same superstep —
+read them with `pendingInterrupts` and answer them together, keyed by `id`:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { graph, channel, START, END, run, resumeKeyed, pendingInterrupts, InMemoryCheckpointer } from "@ilmek/core";
+import type { ChannelMap } from "@ilmek/core";
+
+/** Review state — an append-only log of the sign-offs. */
+const ReviewState = {
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+const g = graph("review", ReviewState)
+  .node("legal", async (state, ctx) => ({ log: [`legal: ${await ctx.interrupt<string>({ question: "Legal OK?" })}`] }))
+  .node("finance", async (state, ctx) => ({ log: [`finance: ${await ctx.interrupt<string>({ question: "Budget OK?" })}`] }))
+  .edge(START, "legal").edge(START, "finance")
+  .edge("legal", END).edge("finance", END)
+  .compile();
+
+const checkpointer = new InMemoryCheckpointer();
+const opts = { threadId: "deal-7", checkpointer };
+
+await run(g, {}, opts);                                     // both nodes pause in one superstep
+const pending = await pendingInterrupts(checkpointer, "deal-7");
+console.log(pending.map((p) => p.id));                      // [ "legal:interrupt#0", "finance:interrupt#0" ]
+
+const done = await resumeKeyed(g, { "legal:interrupt#0": "yes", "finance:interrupt#0": "approved" }, opts);
+console.log(done.status, done.state?.log);                  // "done" [ "legal: yes", "finance: approved" ]
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+/// <summary>Review state — an append-only log of the sign-offs.</summary>
+sealed class ReviewState
+{
+    [Append] public List<string> Log { get; set; } = new();
+}
+
+var g = Graph.Create<ReviewState>("review")
+    .Node("legal", async (state, ctx) =>
+        Update.For<ReviewState>().Append(s => s.Log, $"legal: {await ctx.InterruptAsync<string>(new { question = "Legal OK?" })}"))
+    .Node("finance", async (state, ctx) =>
+        Update.For<ReviewState>().Append(s => s.Log, $"finance: {await ctx.InterruptAsync<string>(new { question = "Budget OK?" })}"))
+    .Edge(Graph.Start, "legal").Edge(Graph.Start, "finance")
+    .Edge("legal", Graph.End).Edge("finance", Graph.End)
+    .Compile();
+
+var checkpointer = new InMemoryCheckpointer();
+var opts = new RunOptions { ThreadId = "deal-7", Checkpointer = checkpointer };
+
+await g.RunAsync(null, opts);                                      // both nodes pause in one superstep
+var pending = await IlmekRuntime.PendingInterruptsAsync(checkpointer, "deal-7");
+Console.WriteLine(string.Join(", ", pending.Select(p => p.Id)));   // legal:interrupt#0, finance:interrupt#0
+
+var done = await g.ResumeKeyedAsync(new Dictionary<string, object?>
+{
+    ["legal:interrupt#0"] = "yes",
+    ["finance:interrupt#0"] = "approved",
+}, opts);
+Console.WriteLine($"{done.Status} [{string.Join(", ", done.State!.Log)}]");   // Done [legal: yes, finance: approved]
+```
+
+</TabItem>
+</Tabs>
+
+A few guardrails keep a thread from being driven the wrong way, each a
+`ResumeError` (`ResumeException` in .NET) with a message naming what to do
+instead:
+
+- a plain `run()` on a thread that is parked on a pause is refused — it would
+  drop the pause; answer it with a resume;
+- a resume on a thread with no checkpoint, or one that is not parked, is refused;
+- a bare answer while more than one interrupt is pending is refused, and the
+  message lists the ids to answer with `resumeKeyed`;
+- `ctx.interrupt()` in a run without a checkpointer is refused — the pause has
+  nowhere to be stored.
 
 Run the interactive demo to feel it:
 
@@ -206,7 +299,8 @@ Run the interactive demo to feel it:
 <TabItem value="ts" label="TypeScript">
 
 ```bash
-cd ts && node examples/checkout.ts     # 💳 create_order → ⏸ paused → 💰 charge
+cd ts && pnpm install && pnpm build
+pnpm --filter @ilmek/examples demo     # 💳 create_order → ⏸ paused → 💰 charge
 ```
 
 </TabItem>
@@ -236,3 +330,29 @@ thread is still parked on the same pause, and you resume it again:
 - a **different** answer is refused with a `ResumeError`. Steps after the pause
   may already have acted on the first answer, so it cannot be swapped out
   underneath them.
+
+## Known limitations
+
+Documented rather than fixed — know them before you build on them:
+
+- **Concurrent resumes of one pause.** The [checkpointer port](/checkpointers/overview#the-port)
+  has no compare-and-swap, so two resumes of the same parked thread that race
+  each other both run the resumed superstep. A step *before* the pause still runs
+  exactly once, but a step *after* it can run twice. Serialize resumes per
+  thread in your host — a queue or a lock keyed by thread id.
+- **`:` in node names or interrupt keys.** An `id` is `<node>:<key>`, so node
+  `a:b` pausing on key `c` and node `a` pausing on key `b:c` in the same
+  superstep produce the same id. Keep `:` out of node names and interrupt keys.
+- **A re-raised pause reports a different payload in each language.** When a
+  replay reaches a pause that is still journaled as pending — say a superstep
+  that paused in one task and failed in another is run again — TypeScript reports
+  the payload the node passes on this pass, .NET the payload journaled when the
+  pause was first raised. They differ only when a node builds its payload
+  nondeterministically, which the [contract](/model/journal#the-contract)
+  already rules out.
+- **.NET: an answer of the wrong type.** `InterruptAsync<int>` answered with
+  `"x"` fails the node with `InvalidCastException` — and since the answer is
+  already journaled, the thread then accepts only that same answer. Validate an
+  answer's type before resuming with it.
+- **Postgres cannot store U+0000** in a payload, answer or step value — see the
+  [Postgres checkpointer](/checkpointers/postgres#values-postgres-cannot-store).

@@ -2,7 +2,9 @@
 
 Call [Agent2Agent](https://a2a-protocol.org) agents from an
 [ilmek](https://github.com/AimTune/ilmek) graph — every round-trip journaled,
-so a pause/resume never re-sends a message the remote agent already acted on.
+so a pause/resume never re-sends a message the remote agent already acted on, on
+any checkpointer (a replayed `SendAsync` is a typed `A2aResult` after a SQLite
+reload too).
 No third-party dependencies: the transport is a two-method interface and the
 HTTP one rides `HttpClient`.
 
@@ -19,3 +21,4 @@ with the open questions in `StatusText` / `StatusData`; the node decides whether
 to answer itself, ask its own human (`ctx.InterruptAsync`), or give up.
 `A2aNodes.Registry(agents)` adds an `a2a_call` node type for stored graph specs.
 Byte-identical to `@ilmek/a2a` (shared fixture in `conformance/a2a`).
+Docs: <https://ilmek.aimtune.dev/a2a>.

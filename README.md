@@ -16,8 +16,8 @@ jobs and background workflows.
 exactly; this README is the tour.
 
 📖 **Full documentation: [ilmek.aimtune.dev](https://ilmek.aimtune.dev)** — guides,
-the execution model, control flow, streaming, and checkpointers. Source in
-[`website/`](website/).
+the execution model, control flow, streaming, checkpointers, and the skills, MCP
+and A2A integrations. Source in [`website/`](website/).
 
 ## Repository layout
 
@@ -27,7 +27,7 @@ under it. The spec and conformance list sit at the root, cross-cutting.
 
 ```
 MODEL.md                          normative spec (language-neutral)
-conformance/                      the scenario list every port must pass
+conformance/                      the scenario list every port must pass + shared fixtures
 ts/                               TypeScript — reference implementation
   packages/
     core/                         @ilmek/core — the engine. zero deps.
@@ -66,10 +66,11 @@ Every graph engine that supports human-in-the-loop resumes a paused node by
 **re-executing it from the top**. So everything above the pause runs again:
 
 ```ts
-.node("checkout", async (state) => {
+.node("checkout", async (state, ctx) => {
     const order = Orders.create(state.cart);   // ← runs AGAIN on resume. Second order.
-    const ok = await interrupt({ question: "Charge?" });
+    const ok = await ctx.interrupt({ question: "Charge?" });
     Payments.charge(order, ok);
+    return { log: ["done"] };
 })
 ```
 
@@ -98,7 +99,8 @@ That is what *"resume from the line"* means here: not a restored call stack —
 **an effect that cannot happen twice**. See it run:
 
 ```bash
-cd ts && node examples/checkout.ts     # 💳 create_order → ⏸ paused → 💰 charge
+cd ts && pnpm install && pnpm build
+pnpm --filter @ilmek/examples demo     # 💳 create_order → ⏸ paused → 💰 charge
 ```
 
 ## The one idea
@@ -125,27 +127,36 @@ thread). **Answer by `id`.** Two nodes pausing in the same superstep both journa
 > A node body must be deterministic **modulo steps**. Every side effect and every
 > nondeterministic read — clock, RNG, uuid, network, DB, LLM — goes in a step.
 
-Obey it and replay is invisible. Violate it and **strict mode** (on by default in
-dev/test) names the key that diverged, instead of letting a silent double-charge
+Obey it and replay is invisible. Violate it and **strict mode** (on by default —
+`strict: true`) names the key that diverged, instead of letting a silent double-charge
 reach production.
 
 ## Quick start
 
+```sh
+npm install @ilmek/core
+```
+
 ```ts
+import { graph, channel, START, END, run, stream, resume, InMemoryCheckpointer } from "@ilmek/core";
+
 const g = graph("support")
     .channel("messages", channel.append<string>())   // widens the state type
-    .node("agent", async (state, ctx) => ({ messages: ["hi"] }))
+    .node("agent", async (state, ctx) => {
+        const answer = await ctx.interrupt<string>({ question: "Approve purchase?" });
+        return { messages: [`approved: ${answer}`] };
+    })
     .edge(START, "agent")
     .edge("agent", END)
     .compile();
 
-const { status, state } = await run(g, { messages: ["hi"] });
-
-for await (const ev of stream(g, { messages: ["hi"] })) console.log(ev);
-
 const opts = { threadId: "conv-42", checkpointer: new InMemoryCheckpointer() };
 const paused = await run(g, { messages: ["buy"] }, opts);   // status: "interrupted"
 const done = await resume(g, "yes", opts);                  // status: "done"
+console.log(done.state?.messages);                          // [ "buy", "approved: yes" ]
+
+// the same run as one canonical event stream
+for await (const ev of stream(g, { messages: ["buy"] }, { ...opts, threadId: "conv-43" })) console.log(ev.type);
 ```
 
 Each `.channel()` widens the builder's state type, so `state` and the update a
@@ -160,7 +171,12 @@ for a drag-and-drop builder: a CRUD app over a JSON document plus a registry
 browser. Nothing in the engine knows the builder exists.
 
 ```ts
-const spec = {
+import { fromSpec, toSpec, type GraphSpec, type NodeRegistry } from "@ilmek/core";
+import assert from "node:assert/strict";
+
+const registry: NodeRegistry = { llm: (config) => () => ({ messages: [`${config.model} replies`] }) };
+
+const spec: GraphSpec = {
     name: "support",
     channels: { messages: { reducer: "append" } },
     nodes: [{ id: "agent", type: "llm", config: { model: "claude-opus-4-8" } }],
@@ -196,7 +212,7 @@ That last one is where the journal earns its keep: a node that charges a card in
 one `ctx.step` and then hits a flaky API in the next retries the API call
 **without charging twice** — the completed step replays from the journal instead
 of re-running. Same guarantee interrupts rely on, turned toward failure.
-`pnpm demo:mapreduce` runs all three together.
+`pnpm --filter @ilmek/examples demo:mapreduce` runs all three together.
 
 ## Streaming
 
@@ -225,12 +241,16 @@ side effects" is the default.
 **Cancellation** is an `AbortSignal`, checked at each superstep boundary; the run
 ends `aborted` with the last checkpoint intact (it resumes cleanly, never rolls
 back). The same signal reaches nodes as `ctx.signal` to forward into their own
-awaits. Run `pnpm demo:stream` to see tokens stream and a mid-stream cancel.
+awaits. Run `pnpm --filter @ilmek/examples demo:stream` to see tokens stream and
+a mid-stream cancel.
 
 ## Status
 
-Green against the [conformance](conformance/) list in both languages:
-TypeScript 176 tests (`cd ts && pnpm check`), .NET 28 (`cd dotnet && dotnet test Ilmek.sln`).
+Green against the [conformance](conformance/) list in both languages
+(`cd ts && pnpm check`, `cd dotnet && dotnet test Ilmek.sln`). Known limitations — concurrent resumes of one
+pause, `:` in pending ids, Postgres and U+0000, and a wrongly typed answer in .NET — are
+listed in the docs under
+[Interrupts → Known limitations](https://ilmek.aimtune.dev/model/interrupts#known-limitations).
 
 | capability | TS | .NET |
 |---|---|---|
@@ -244,6 +264,7 @@ TypeScript 176 tests (`cd ts && pnpm check`), .NET 28 (`cd dotnet && dotnet test
 | in-memory checkpointer (in core) | ✅ | ✅ |
 | **SQLite** checkpointer — durable, single file | ✅ | ✅ |
 | **Postgres** checkpointer | ✅ | ⬜ |
+| checkpointer contract suite (§7 as tests, every durable backend) | ✅ | ✅ |
 | **Skills** — SKILL.md reader, catalog, prompt, `skill` node types (shared fixtures in `conformance/skills`) | ✅ | ✅ |
 | **MCP** — toolbox over a duck-typed client, journaled calls, prompts as skills, `mcp_tool` / `mcp_resource` node types (shared fixture in `conformance/mcp`) | ✅ | ✅ |
 | **A2A** — call Agent2Agent agents over a two-call transport port, journaled sends, `input-required` as data, `a2a_call` node type (shared fixture in `conformance/a2a`) | ✅ | ✅ |
@@ -262,7 +283,7 @@ Toolchain and debugging guides live in [ts/README.md](ts/README.md) and
 [dotnet/README.md](dotnet/README.md). The fastest way to feel the model:
 
 ```bash
-cd ts && pnpm build && pnpm --filter @ilmek/examples demo   # interactive
+cd ts && pnpm install && pnpm build && pnpm --filter @ilmek/examples demo   # interactive
 cd dotnet && dotnet run --project examples/Ilmek.Examples   # same thing, C#
 ```
 

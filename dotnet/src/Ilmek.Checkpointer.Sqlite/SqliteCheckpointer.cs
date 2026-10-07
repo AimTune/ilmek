@@ -30,8 +30,10 @@ public sealed record SqliteCheckpointerOptions
 /// </code>
 ///
 /// <para>Values crossing the file boundary are JSON (see
-/// <see cref="JsonValue"/>): journal what serializes and re-resolve richer
-/// objects from it, exactly as MODEL.md §5.4 requires.</para>
+/// <see cref="JsonValue"/> and <see cref="JournalJson"/>): state comes back as
+/// plain data, while a typed <c>StepAsync&lt;T&gt;</c> / <c>InterruptAsync&lt;T&gt;</c>
+/// converts its replayed value back to <c>T</c>. Journal what serializes, as
+/// MODEL.md §5.4 requires.</para>
 /// </summary>
 public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 {

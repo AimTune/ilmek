@@ -164,6 +164,58 @@ public class A2aTests
         Assert.Equal(2, t.Requests.Count);
     }
 
+    [Fact(DisplayName = "send survives a SQLite reload: the replayed A2aResult is typed and identical")]
+    public async Task SendSurvivesSqliteReload()
+    {
+        // A durable checkpointer hands the journal back as plain JSON data; the
+        // replayed SendAsync must still produce an A2aResult, not throw an
+        // InvalidCastException, and must not post to the agent again.
+        var dir = Directory.CreateTempSubdirectory("ilmek-a2a-").FullName;
+        var path = Path.Combine(dir, "a2a.db");
+        try
+        {
+            var t = new FakeTransport();
+            var agent = await Connect(t);
+            var firsts = new List<A2aResult>();
+            var g = Graph.Create("delegate")
+                .Channel("log", Channels.Append())
+                .Node("ask", async (State _, IContext ctx) =>
+                {
+                    var first = await agent.SendAsync(ctx, "refund please");
+                    firsts.Add(first);
+                    var ok = await ctx.InterruptAsync<string>(new Dictionary<string, object?> { ["q"] = first.StatusText });
+                    var done = await agent.SendAsync(ctx, ok, new SendOptions { TaskId = first.TaskId, Key = "answer" });
+                    return Update.Of("log", new List<object?> { first.State, done.Text });
+                })
+                .Edge(Graph.Start, "ask").Edge("ask", Graph.End)
+                .Compile();
+
+            using (var cp = Ilmek.Checkpointers.Sqlite.SqliteCheckpointer.Open(path))
+            {
+                var paused = await g.RunAsync(new Dictionary<string, object?>(), new RunOptions { ThreadId = "t-sqlite", Checkpointer = cp });
+                Assert.Equal(RunStatus.Interrupted, paused.Status);
+            }
+
+            using (var cp = Ilmek.Checkpointers.Sqlite.SqliteCheckpointer.Open(path))
+            {
+                var done = await g.ResumeAsync("Approve", new RunOptions { ThreadId = "t-sqlite", Checkpointer = cp });
+                Assert.Equal(RunStatus.Done, done.Status);
+                Assert.Equal(["input-required", "Refunded."], done.State!.Get<IReadOnlyList<object?>>("log").Cast<string>().ToArray());
+            }
+
+            Assert.Equal(2, t.Requests.Count); // the first send was not re-posted
+            Assert.Equal(2, firsts.Count);
+            Assert.Equal(Canonical(firsts[0].ToDictionary()), Canonical(firsts[1].ToDictionary()));
+            Assert.Equal(Canonical(firsts[0].Task), Canonical(firsts[1].Task));
+            Assert.True(firsts[1].NeedsInput);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
     [Fact(DisplayName = "Normalize joins artifact text, reads status text and data, flags input-required")]
     public void NormalizeReducesATask()
     {

@@ -89,6 +89,20 @@ public sealed class Graph
 
     private Graph(string? name) => _name = name;
 
+    /// <summary>
+    /// Node ids and channel names key the checkpoint, the journal task ids and the
+    /// pending-interrupt ids, so they must be real strings. The static types already
+    /// say so; this catches a graph built from untyped data (a stored spec, JSON).
+    /// </summary>
+    private static void RequireName(string what, string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+            throw new GraphException($"{what} name must be a non-empty string, got {Quote(name)}");
+    }
+
+    /// <summary>A name as the TS reference prints it: <c>"x"</c>, or <c>null</c>.</summary>
+    internal static string Quote(string? name) => name is null ? "null" : $"\"{name}\"";
+
     /// <summary>Start an untyped graph — state is a string-keyed channel map (MODEL.md §2).</summary>
     public static Graph Create(string? name = null) => new(name);
 
@@ -102,6 +116,7 @@ public sealed class Graph
     /// <summary>Declare a channel and its reducer (MODEL.md §2). Undeclared channels are a runtime error.</summary>
     public Graph Channel(string name, Channel channel)
     {
+        RequireName("channel", name);
         if (_channels.ContainsKey(name)) throw new GraphException($"duplicate channel \"{name}\"");
         _channels[name] = channel;
         return this;
@@ -110,8 +125,10 @@ public sealed class Graph
     public Graph Node(string id, NodeFn fn, RetryPolicy? retry = null, string? type = null,
         IReadOnlyDictionary<string, object?>? config = null)
     {
+        RequireName("node", id);
         if (Reserved.Contains(id)) throw new GraphException($"\"{id}\" is reserved and implicit");
         if (_nodes.ContainsKey(id)) throw new GraphException($"duplicate node \"{id}\"");
+        if (fn is null) throw new GraphException($"node \"{id}\": expected a function (state, ctx), got null");
         if (retry is not null && retry.MaxAttempts < 1)
             throw new GraphException($"node \"{id}\": RetryPolicy.MaxAttempts must be ≥ 1");
 
@@ -144,10 +161,14 @@ public sealed class Graph
     {
         foreach (var edge in _edges)
         {
-            if (edge.From != Start && !_nodes.ContainsKey(edge.From))
-                throw new GraphException($"edge from unknown node \"{edge.From}\"");
+            // A null end only reaches here from untyped data (a stored spec): name
+            // it rather than let the dictionary throw ArgumentNullException.
+            if (edge.From is null || (edge.From != Start && !_nodes.ContainsKey(edge.From)))
+                throw new GraphException($"edge from unknown node {Quote(edge.From)}");
+            if (edge.Router is null && edge.To is null)
+                throw new GraphException($"edge {Quote(edge.From)} -> unknown node null");
             if (edge.To is not null && edge.To != End && !_nodes.ContainsKey(edge.To))
-                throw new GraphException($"edge \"{edge.From}\" -> unknown node \"{edge.To}\"");
+                throw new GraphException($"edge {Quote(edge.From)} -> unknown node {Quote(edge.To)}");
         }
 
         if (!_edges.Any(e => e.From == Start))

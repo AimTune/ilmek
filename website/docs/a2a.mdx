@@ -68,7 +68,14 @@ Console.WriteLine(desk.Card["name"]);
 
 `connect` fetches the Agent Card once; `name` is the journal-key namespace
 (default: the card's name, slugified). The transport is a two-call port —
-`getAgentCard` and `post` — so a scripted fake stands in for tests.
+`getAgentCard` and `post` (`IA2aTransport`: `GetAgentCardAsync`, `PostAsync`) —
+so a scripted fake stands in for tests.
+
+`HttpA2aTransport` takes the agent's origin (the card is read from
+`/.well-known/agent-card.json`), a card URL ending in `.json`, or the JSON-RPC
+endpoint itself; JSON-RPC goes to the card's `url` unless an endpoint was given.
+In TypeScript it accepts `{ headers, fetch }` options; in .NET you pass the
+`HttpClient`, so headers and handlers live on it.
 
 ## Sending a message — once
 
@@ -103,6 +110,7 @@ const g = graph("delegate")
 
 ```csharp
 using Ilmek;
+using Ilmek.A2A;
 
 var g = Graph.Create("delegate")
     .Channel("question", Channels.LastWrite(""))
@@ -140,13 +148,32 @@ The result is **normalized** to plain data — that is what the journal keeps:
 | `needsInput` | `state === "input-required"` |
 | `task` | the task, verbatim |
 
+On a resume the recorded result comes back the same on any checkpointer: in
+.NET, `SendAsync` returns a typed `A2aResult` after a SQLite reload too.
+
 `send` takes `contextId` to continue a remote conversation, `taskId` to answer a
 paused task, `data` for a data part (a mekik agent with several open pauses
 wants `{ answers: { <id>: <answer> } }`), and `key` to separate two sends in one
-node. `invoke` is the raw, unjournaled call. A JSON-RPC error from the remote
-agent throws `A2aError` / `A2aException` with its code (`-32001` task not found,
-…); an agent that answers `message/send` with a bare message is read as a
-completed task.
+node. `invoke` is the raw, unjournaled call; `getTask(taskId, historyLength?)` and
+`cancelTask(taskId)` (`GetTaskAsync`, `CancelTaskAsync`) are the raw
+`tasks/get` and `tasks/cancel`. An agent that answers `message/send` with a bare
+message is read as a completed task.
+
+### Errors
+
+| what happened | TypeScript | .NET |
+|---|---|---|
+| the agent answered with a JSON-RPC error | `A2aError` with its `code`, `message` and `data` (`-32001` task not found, …) | `A2aException` with `Code`, `Message` and `Data2` |
+| a malformed response: no `result` and no `error`, a result that is neither a task nor a message, a task without a `status` | `A2aError`, code `-32603` | `A2aException`, code `-32603` |
+| the card or the endpoint answered with a non-2xx HTTP status | `Error` (`HTTP <status>`) | `HttpRequestException` |
+| the card has no `url` and no endpoint was given | `Error` | `InvalidOperationException` |
+| a message with neither text nor data | `Error` | `ArgumentException` |
+
+Inside `send` a thrown error fails the step, so nothing is journaled and the
+send runs again on the next attempt — a node [retry policy](/control-flow/retry)
+covers a flaky agent. In a [stored graph](#a2a-as-graph-data), an unknown agent,
+or an `a2a_call` with neither `text` nor `textFrom`, is a `GraphError`
+(`GraphException`) when the graph is built.
 
 ## A2A as graph data
 

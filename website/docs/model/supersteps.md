@@ -34,9 +34,11 @@ checkpointed, or none is. A crash mid-superstep resumes the *whole* superstep �
 surviving tasks fast-forward through their [journals](/model/journal), so no
 completed step re-runs.
 
-**Bounded.** A recursion limit (default **25**) caps the superstep count.
-Exceeding it raises `RecursionLimitError` — a guard against a router that loops
-forever.
+**Bounded.** A recursion limit (default **25**, the `recursionLimit` run option)
+caps the superstep count. Exceeding it raises `RecursionLimitError`
+(`RecursionLimitException` in .NET) — a guard against a router that loops
+forever. A node can read `ctx.remainingSteps` (`recursionLimit − stepIndex`,
+never below 0) to wind down gracefully before it hits the limit.
 
 ## Why BSP
 

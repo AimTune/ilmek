@@ -33,6 +33,7 @@ pnpm install
 pnpm build          # tsc -b — builds core, then providers, in dep order
 pnpm test           # runs each package's test suite
 pnpm test:core      # just core, against src (no build needed)
+pnpm test:coverage  # every package suite with node --experimental-test-coverage (src only)
 pnpm demos          # the three example demos (needs a build first)
 pnpm check          # build → test → demos. the CI command.
 ```
@@ -65,11 +66,13 @@ dependency, and core stays dependency-free.
 | `@ilmek/checkpoint-postgres` | several processes sharing the same threads. |
 
 ```ts
+import { run } from "@ilmek/core";
 import { SqliteCheckpointer } from "@ilmek/checkpoint-sqlite";
+import { PostgresCheckpointer } from "@ilmek/checkpoint-postgres";
+
 const cp = await SqliteCheckpointer.open("./agent.db");   // migrates for you
 await run(graph, input, { threadId, checkpointer: cp });
 
-import { PostgresCheckpointer } from "@ilmek/checkpoint-postgres";
 const pg = new PostgresCheckpointer(pgPool);              // any pg-shaped client
 await pg.migrate();
 ```
@@ -81,8 +84,16 @@ effect before that pause does *not* re-run. `better-sqlite3` drops in unchanged
 (same `exec`/`prepare` shape).
 
 **Postgres** talks to anything with `query(text, params)` — node-postgres'
-`Client`/`Pool` fit as-is. Its tests drive an in-memory fake client, since a
-database is not always around; a live smoke test is gated on `DATABASE_URL`.
+`Client`/`Pool` fit as-is. Its tests run the shared checkpointer contract against
+real Postgres SQL through [PGlite](https://pglite.dev) (in-process WASM Postgres,
+a dev dependency) and drive a fake client for the wire contract, so no database
+is needed. A live smoke test is skipped unless `DATABASE_URL` is set; it imports
+`pg`, which is not a dependency, so make it resolvable first
+(`pnpm --filter @ilmek/checkpoint-postgres add -D pg`, not committed).
+
+Both SQL providers take a `tablePrefix` (default `"ilmek"`) so apps can share a
+database; it must be a plain SQL identifier and anything else is refused at
+construction.
 
 ## Debugging
 

@@ -202,19 +202,39 @@ Journaled values MUST survive a serializer round-trip: what a step returns on a
 fresh call and what it returns from the journal MUST be equal. A step returning
 a PID, socket, or stream handle violates this — return an id and re-resolve it.
 
+A durable checkpointer hands the journal back as JSON-shaped data, not the
+objects that went in. A port with typed step and interrupt accessors (.NET's
+`StepAsync<T>` / `InterruptAsync<T>`) MUST convert a replayed value back to the
+requested type with the same serializer settings the checkpointer writes with,
+exactly (a `decimal` keeps its value and scale) and culture-invariantly; a
+value that already has the type — every value an in-memory journal holds — is
+returned as is.
+
 ### 5.5 Strict mode
 
-When enabled (default in dev/test), the engine records the observed key
-sequence and compares it against the journal on the next replay. A journaled
-key that the replay never requests, or a divergent order for an auto-suffixed
-key, raises `NondeterminismError` naming the key. This turns a silent
-double-charge into a loud test failure.
+When enabled (the default: `strict: true`), the engine records the keys a task
+requests and, when the task runs to completion, compares them against its
+journal. A journaled key that the replay never requested raises
+`NondeterminismError` naming the key. This turns a silent double-charge into a
+loud test failure.
+
+Strict mode checks which keys were requested, not their order or inputs: a
+loop that reorders items under one auto-suffixed key replays the wrong recorded
+value without complaint — which is why §5.4 asks loops for stable keys.
+Independently of strict mode, a step whose key collides with a pending interrupt
+of the same key raises `NondeterminismError`.
 
 ### 5.6 Lifetime
 
-A journal is scoped to a **task** — `(thread, checkpoint, node)` — and is
-discarded when that task completes and its update is reduced. It is *replay
-memory*, not history. Checkpoints (§7) are the durable record.
+A journal is scoped to a **task** — `(thread, plan checkpoint, task key)`. Its
+task id is `<thread_id>:<plan_id | "root">:<task_key>`, where `plan_id` is the
+checkpoint the superstep was planned from (`root` for a thread's first
+superstep) and `task_key` is the node name, or `node#n` for the nth send to it
+(§14). The plan id MUST survive an interrupt/resume cycle unchanged — a
+replayed task that looks up a different id finds no journal and re-runs every
+step. A journal is discarded when its superstep commits and its update is
+reduced. It is *replay memory*, not history. Checkpoints (§7) are the durable
+record.
 
 ## 6. Interrupts & resume (HITL)
 
@@ -257,6 +277,12 @@ So a pending interrupt carries two handles:
 | `key` | the task (`"interrupt#0"`) | addressing the journal entry |
 | `id`  | the thread (`"<node>:<key>"`) | addressing the pause from outside |
 
+For a task started by a `send` (§14) the node part of the id is the task key,
+so fan-out branches pausing together stay distinct (`worker#0:interrupt#0`,
+`worker#1:interrupt#0`). Ids are built by plain concatenation, so a `:` inside
+a node name or an interrupt key can make two pauses' ids collide; implementations
+MAY leave that to the author.
+
 **Resume answers MUST be keyed by `id`.** Keying by `key` looks fine until the
 first concurrent pause, then silently drops an answer and hands both nodes the
 same one — a data-corruption bug with no error.
@@ -277,18 +303,48 @@ ok?  = interrupt ctx, %{question: "Delete production?"}    # interrupt#0
 sure? = interrupt ctx, %{question: "Really sure?"}         # interrupt#1
 ```
 
+### 6.2 Resume atomicity
+
+A resume is **all-or-nothing**. Every pending interrupt MUST have an answer
+before any is recorded: a resume that misses one is refused (`ResumeError`) and
+writes nothing, so the corrected call succeeds. Answers for ids that are not
+pending are ignored.
+
+Answers are journaled before the resumed superstep runs. If that superstep does
+not commit — a node throws, the run is aborted, the process dies — the thread is
+still parked on the same pauses while their journal entries already hold the
+answers. A later resume of that thread:
+
+* with the **same** answer (deep-equal; compared in JSON space where the
+  checkpointer round-trips through JSON) replays the superstep, and every step
+  already completed — including steps after the pause — returns from the
+  journal;
+* with a **different** answer is refused with `ResumeError`: steps after the
+  pause may already have acted on the first answer.
+
+The checkpointer port (§7) has no compare-and-swap, so two resumes of the same
+pause racing each other are not arbitrated: the step before the pause still runs
+once, but a step after it can run twice. Hosts serialize resumes per thread.
+
 ## 7. Checkpointer — the memory port
 
 One port; many backends. This is where "state'in tutulduğu memory" lives.
 
 ```
-put(thread_id, checkpoint)          -> :ok
+put(checkpoint)                     -> :ok                   # keyed by its thread_id and id
 get(thread_id, checkpoint_id | nil) -> checkpoint | nil     # nil = latest
 list(thread_id, opts)               -> [checkpoint]          # newest first
 put_journal(task_id, entries)       -> :ok
-get_journal(task_id)                -> [entry]
+get_journal(task_id)                -> [entry]               # empty when none is stored
+drop_journal(task_id)               -> :ok                   # the engine calls it as a superstep commits
 delete_thread(thread_id)            -> :ok                   # checkpoints AND the thread's journals
 ```
+
+`delete_thread` MUST also drop every journal whose task id starts with
+`<thread_id>:root:` or `<thread_id>:ckpt-` (§5.6) — a fresh run on a reused
+thread id plans from `root` again and would otherwise replay the deleted
+conversation's steps and pauses. SQL backends match those prefixes with
+`substr`, not `LIKE`, since a thread id may contain `%` or `_`.
 
 A **checkpoint** is:
 
@@ -296,9 +352,12 @@ A **checkpoint** is:
 {
   "id": "ckpt-…",              // monotonic, sortable
   "parent_id": "ckpt-…",       // enables branching / time travel
+  "plan_id": "ckpt-…",         // the checkpoint `next` was planned from (§5.6); null at first
   "thread_id": "thread-…",
   "channels": { "messages": [...], "cart": {...} },
-  "next": ["checkout"],        // tasks for the NEXT superstep
+  "next": [                    // tasks for the NEXT superstep
+    { "node": "checkout", "task_key": "checkout", "is_send": false }
+  ],
   "pending": [                 // open interrupts, empty when running normally
     { "id": "checkout:interrupt#0",   // thread-scoped — answer by THIS (§6.1)
       "task_id": "…", "node": "checkout",
@@ -314,9 +373,9 @@ Because every checkpoint names its parent, a thread is a **tree**, not a line:
 resuming from a non-latest checkpoint forks a branch (time travel / what-if).
 Implementations MUST NOT assume a single chain.
 
-Reference backends: `InMemory` (ETS in Elixir, Map in TS) and `Redis`. A
-`Postgres` backend is the intended production default and the natural home for
-the DB-driven builder (§9).
+Backends today: in-memory (in each core), SQLite (TypeScript and .NET) and
+Postgres (TypeScript). Postgres is the intended production default and the
+natural home for the DB-driven builder (§9).
 
 Ilmek checkpoints are ilmek's own. They are **not** botiva state — botiva keeps
 its transcript and `conv:*` keyspace independently.
@@ -372,8 +431,14 @@ from day one, not a later feature, because retrofitting it is expensive.
   registered ones. The engine cannot tell the difference.
 * `when` in a stored spec is a **declarative predicate**, not code — a stored
   graph must never carry executable text. Code-defined graphs may pass a real
-  function; the spec serializer refuses to emit one.
+  function; the spec serializer refuses to emit one. An operator is present when
+  its key is: `{ channel, eq: null }` tests for `null`; it is not "no operator".
 * Round-trip is a conformance test: `compile(spec) |> to_spec() == spec`.
+* A spec is a stored document, so building from it validates its shape: an
+  unknown node type, an unknown reducer, a predicate on an undeclared channel or
+  with no known operator, a missing type, a spec, node or edge that is not an
+  object, a missing or empty node id — each raises `GraphError` naming the bad
+  part, never a raw type or null-reference error from inside the builder.
 
 The drag-and-drop builder is therefore a CRUD app over this document plus a
 registry browser. Nothing in the engine knows it exists.
@@ -405,6 +470,7 @@ Every implementation MUST emit these types, in this order:
 | `step_start {step, tasks}` | superstep begins |
 | `node_start {node, task_id}` | task begins |
 | `custom {payload}` | `ctx.emit(...)` — delivered live, mid-superstep |
+| `node_retry {node, attempt, error}` | a failed task is about to retry (§16) |
 | `node_end {node, update}` | task returns |
 | `node_error {node, error}` | task raises |
 | `state {channels}` | after REDUCE |
@@ -462,7 +528,7 @@ responsive as the node's own signal handling.
 | Concept | TypeScript | .NET |
 |---------|------------|------|
 | define graph (untyped) | `graph(name).channel(…).node(…).edge(…).router(…)` | `Graph.Create(name).Channel(…).Node(…).Edge(…).Router(…)` |
-| define graph (typed) | `graph(name, schema).node(…)` — state inferred/nameable | `Graph.Create<TState>(name).Channel(s => s.X, …).Node(…)` |
+| define graph (typed) | `graph(name, schema).node(…)` — state inferred/nameable | `Graph.Create<TState>(name).Node(…)` — reducers from `[Append]` / `[Merge]` attributes |
 | compile | `.compile()` | `.Compile()` |
 | stream | `stream(g, input, opts): AsyncGenerator<IlmekEvent>` | `g.StreamEvents(input, opts): IAsyncEnumerable<IlmekEvent>` |
 | run | `run(g, input, opts): Promise<Result>` | `g.RunAsync(input, opts): Task<Result>` |
@@ -483,6 +549,9 @@ responsive as the node's own signal handling.
 | node return | `update` \| `void` \| `command(...)` \| `throw` | update dict \| `null` \| `Command` \| `throw` |
 | entry / exit | `START` · `END` | `Graph.Start` · `Graph.End` |
 | cancellation (§10.3) | `AbortSignal` → `ctx.signal` | `CancellationToken` → `ctx.CancellationToken` |
+| is it a pause? | `isInterrupt(e)` | `InterruptSignalException.IsInterrupt(ex)` |
+| journal prefixes (§7) | `threadJournalPrefixes(threadId)` | `Checkpoint.ThreadJournalPrefixes(threadId)` |
+| errors | `GraphError` · `ReducerError` · `RecursionLimitError` · `NondeterminismError` · `ResumeError` | `GraphException` · `ReducerException` · `RecursionLimitException` · `NondeterminismException` · `ResumeException` |
 
 Where the two must differ, and why:
 
@@ -490,9 +559,10 @@ Where the two must differ, and why:
   is always available (`state["key"]` / `state.Get<T>("key")`). Both languages
   also offer a fully typed surface over it: TypeScript infers the state from the
   declared channels (`graph(name)` chained, or `graph(name, schema)` for a
-  nameable type); .NET declares the state as a class and names channels by
-  selector (`Graph.Create<TState>()` + `.Channel(s => s.Cart, …)`), returning
-  `Update.For<TState>().Set(s => s.X, v)`. Same channel map underneath — the
+  nameable type); .NET declares the state as a class whose properties are the
+  channels, each reducer an attribute (`[Append]`, `[Merge]`; a plain property
+  is `last_write`), and returns `Update.For<TState>().Set(s => s.X, v)`. Only a
+  custom reducer needs `.Channel(s => s.X, Channels.Reduce(…))`. Same channel map underneath — the
   typing is a facade the engine never sees.
 * **The pause signal.** TS throws a non-`Error` value so a
   `catch (e instanceof Error)` cannot swallow a pause. The CLR has no such
@@ -505,7 +575,7 @@ Where the two must differ, and why:
 
 Run options (`RunOptions`): `threadId`, `checkpointer`, `checkpointId`,
 `recursionLimit` (default 25), `strict` (default true), `meta`, `log`, `signal`
-(§10.3). Context fields beyond the graph handles: `stepIndex`, `recursionLimit`,
+(§10.3). .NET has no `log`, and takes a `CancellationToken` for `signal`. Context fields beyond the graph handles: `stepIndex`, `recursionLimit`,
 `remainingSteps` (`recursionLimit − stepIndex`, floored at 0, for graceful
 wind-down), `signal`, `meta`, `journal` (read-only).
 
@@ -561,7 +631,7 @@ A router MAY return `send(node, input)` values, alone or mixed with plain node
 names:
 
 ```ts
-.router("fanout", (state) => state.items.map((item) => send("worker", { item }))
+.router("fanout", (state) => state.items.map((item) => send("worker", { item })))
 ```
 
 Semantics:
@@ -621,9 +691,9 @@ A node MAY declare a retry policy:
 .node("call_api", fn, { retry: { maxAttempts: 3, backoffMs: 200, factor: 2, retryOn: isTransient } })
 ```
 
-When the node throws a non-interrupt error, the engine re-invokes it up to
-`maxAttempts` times (`backoffMs * factor^(n-1)` between attempts, optionally
-gated by `retryOn(error)`). Each retry emits a `node_retry {node, attempt,
+When the node throws a non-interrupt error, the engine re-invokes it until it
+has run `maxAttempts` times in all (`backoffMs * factor^(n-1)` before the n-th
+retry, capped at `maxBackoffMs`, optionally gated by `retryOn(error)`). Each retry emits a `node_retry {node, attempt,
 error}` event before the next attempt.
 
 The retry re-runs the **node body**, but every `ctx.step` it already completed
@@ -635,4 +705,4 @@ default where a pure-replay engine's are not.
 
 Retries are within a single superstep; they do not create checkpoints. If all
 attempts are exhausted the node fails normally (§4) and the run ends `:error`.
-An `AbortSignal` (§10.3) fires between attempts stops the retry loop.
+An `AbortSignal` (§10.3) that fires between attempts stops the retry loop.

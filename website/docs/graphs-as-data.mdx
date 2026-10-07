@@ -72,7 +72,7 @@ using Ilmek;
 var registry = new Dictionary<string, NodeBuilder>
 {
     ["llm"] = config => (state, ctx) =>
-        new Dictionary<string, object?> { ["messages"] = new[] { $"{config["model"]} replies" } },
+        new ValueTask<object?>(Update.Of("messages", $"{config["model"]} replies")),
 };
 
 // The stored document — plain data, no executable text.
@@ -85,7 +85,7 @@ var spec = new GraphSpec
 };
 
 var g = Spec.FromSpec(spec, registry).Compile();
-var rebuilt = Spec.ToSpec(g);   // GraphSpec, value-equal to spec — a conformance test
+var rebuilt = Spec.ToSpec(g);   // a GraphSpec with the same content as spec — a conformance test
 ```
 
 </TabItem>
@@ -97,6 +97,60 @@ var rebuilt = Spec.ToSpec(g);   // GraphSpec, value-equal to spec — a conforma
 Code-defined graphs register anonymous types; DB-defined graphs reference
 registered ones. **The engine cannot tell the difference** — the same executor
 runs both.
+
+`fromSpec` returns a builder, so call `.compile()` (`.Compile()`) on it. To make
+a code-defined node storable, give it the type and config it would have in a
+spec — `.node(id, fn, { type, config })` / `.Node(id, fn, type: …, config: …)` —
+and give a guarded edge its declarative twin with `specWhen` alongside `when`.
+
+The packages ship ready-made registries you can spread into your own:
+[`skillNodes`](/skills#skills-as-graph-data), [`mcpNodes`](/mcp#mcp-as-graph-data)
+and [`a2aNodes`](/a2a#a2a-as-graph-data).
+
+## Declarative predicates
+
+A stored edge's `when` names one declared channel and exactly one operator:
+
+| operator | the edge is taken when the channel's value… |
+|---|---|
+| `eq` | equals the given value |
+| `neq` | does not equal it |
+| `in` | is one of the listed values |
+| `gt` / `lt` | is a number greater / less than the given one (a non-number never matches) |
+| `truthy` | is truthy (`true`) or falsy (`false`): `null`, `false`, `""`, `0`, an empty list and an empty map are falsy |
+
+Numbers compare by value in both languages, so `3` in a document matches a
+channel holding `3.0` — or a `long` read back from SQLite in .NET. Equality is by
+value for strings, numbers and booleans; compare objects by a field instead.
+`null` is a value like any other: `{ channel, eq: null }` is taken when the
+channel holds `null`, `neq: null` when it holds anything else, and `in` may list
+`null` (in .NET, `Eq = null` / `Neq = null` count as set). One difference
+remains: TypeScript has `undefined`, so a channel nobody has written is not
+`null` there and `eq: null` does not match it; .NET has no `undefined`, so an
+unwritten channel *is* `null` and does match. To test for "no value" the same way
+in both, use `truthy: false`.
+
+In .NET, `SpecPredicate` serializes with System.Text.Json to the same document
+shape — only the operators that are set, so `Eq = null` survives and an unset
+operator stays out — and reads TypeScript's camelCase keys (`"eq"`) as well as
+its own (`"Eq"`), with operand values as plain data that compare like channel
+values.
+
+## Malformed specs fail loudly
+
+A spec is a stored document, so `fromSpec` checks its shape instead of trusting
+it, and every problem is a `GraphError` (`GraphException` in .NET) that names the
+bad part — never a `TypeError` (or a `NullReferenceException`) from deep inside
+the builder. Both languages refuse the same cases with the same messages:
+
+- a node without a `type`, or a duplicate node or channel name;
+- a spec, channel config, node or edge that is not an object (`null` in .NET),
+  and a node `id` or channel name that is missing or empty;
+- a `type` the registry does not hold (the message lists the known types), or a
+  registry entry that does not return a node function;
+- a channel `reducer` other than `last_write`, `append` or `merge`;
+- a predicate on a channel the spec does not declare, or with no known operator;
+- an edge to or from a node that does not exist (raised by `compile()`).
 
 ## Two rules keep stored graphs safe
 

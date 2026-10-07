@@ -29,10 +29,7 @@ The single typed [event stream](/streaming/overview) is canonical. A consumer ma
 
 ```ts
 import { graph, channel, START, END, streamModes } from "@ilmek/core";
-import type { ChannelMap, StateOf } from "@ilmek/core";
-
-/** A token chunk — the payload shape the messages projection yields. */
-type TokenChunk = { type: "token"; text: string };
+import type { ChannelMap, StateOf, TokenChunk } from "@ilmek/core";
 
 /** Answer state — the prompt in, the streamed reply appended out. */
 const AnswerState = {
@@ -88,10 +85,10 @@ var input = Update.For<AnswerState>().Set(s => s.Prompt, "say hello");
 
 // token-by-token, plus the committed update, multiplexed through one pass
 await foreach (var part in Streaming.Projected(
-    IlmekRuntime.Stream(g, input),
+    g.StreamEvents(input),
     new[] { StreamMode.Messages, StreamMode.Updates }))
 {
-    if (part.Mode == StreamMode.Messages) Console.Write(part.Data);
+    if (part.Mode == StreamMode.Messages) Console.Write(((TokenChunk)part.Data!).Text);
 }
 ```
 

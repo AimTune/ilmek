@@ -47,7 +47,7 @@ const g = graph("resilient", ApiState)
   .compile();
 
 const { status, state } = await run(g, { log: [] });
-console.log(status, state.log);   // "done" [ "ok" ]  — after two retries
+console.log(status, state?.log);   // "done" [ "ok" ]  — after two retries
 ```
 
 </TabItem>
@@ -69,6 +69,12 @@ static class Api
     }
 }
 
+/// <summary>Retry only errors this accepts — here, transient 503s.</summary>
+static class Errors
+{
+    public static bool IsTransient(Exception e) => e.Message.StartsWith("503", StringComparison.Ordinal);
+}
+
 /// <summary>State — one append-only log channel.</summary>
 sealed class ApiState
 {
@@ -80,22 +86,38 @@ var g = Graph.Create<ApiState>("resilient")
     {
         var body = Api.Fetch();   // throws on the first 2 calls; the engine re-invokes the node
         return Update.For<ApiState>().Append(s => s.Log, body);
-    }, retry: new RetryPolicy { MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2 })
+    }, retry: new RetryPolicy
+    {
+        MaxAttempts = 3, Backoff = TimeSpan.FromMilliseconds(200), Factor = 2, RetryOn = Errors.IsTransient,
+    })
     .Edge(Graph.Start, "call_api")
     .Edge("call_api", Graph.End)
     .Compile();
 
-var result = await IlmekRuntime.RunAsync(g, Update.For<ApiState>());
+var result = await g.RunAsync(Update.For<ApiState>());
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");   // Done [ok] — after two retries
 ```
 
 </TabItem>
 </Tabs>
 
-When the node throws a non-interrupt error, the engine re-invokes it up to
-`maxAttempts` times — waiting `backoffMs * factor^(n-1)` between attempts,
-optionally gated by `retryOn(error)`. Each retry emits a
-`node_retry { node, attempt, error }` event before the next attempt.
+When the node throws a non-interrupt error, the engine re-invokes it until it
+has run `maxAttempts` times in all — waiting `backoffMs * factor^(n-1)` before
+the n-th retry, capped at `maxBackoffMs`, and optionally gated by
+`retryOn(error)`. Each retry emits a `node_retry { node, attempt, error }`
+event (`attempt` is the upcoming attempt, so the first retry is `2`) before
+it starts.
+
+| TypeScript | .NET | default | meaning |
+|---|---|---|---|
+| `maxAttempts` | `MaxAttempts` | `1` | total attempts including the first; must be ≥ 1 |
+| `backoffMs` | `Backoff` (`TimeSpan`) | `0` | delay before the first retry |
+| `factor` | `Factor` | `1` | multiplier applied to the delay after each retry |
+| `maxBackoffMs` | `MaxBackoff` | unbounded | cap on the computed delay |
+| `retryOn(error)` | `RetryOn(exception)` | retry every error | retry only the errors this accepts |
+
+A `maxAttempts` below 1 is refused when the node is added, with a `GraphError`
+(`GraphException`).
 
 ## Why ilmek retries are safe
 
@@ -138,7 +160,7 @@ const g = graph("charge-notify", OrderState)
   .compile();
 
 const { status, state } = await run(g, { order: "ord-9001" });
-console.log(status, state.log);   // "done" [ "notified" ]  — charged exactly once
+console.log(status, state?.log);   // "done" [ "notified" ]  — charged exactly once
 ```
 
 </TabItem>
@@ -183,7 +205,7 @@ var g = Graph.Create<OrderState>("charge-notify")
     .Compile();
 
 var input = Update.For<OrderState>().Set(s => s.Order, "ord-9001");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");   // Done [notified] — charged once
 ```
 
@@ -202,5 +224,6 @@ a pure-replay engine's are not.
 - An [`AbortSignal`](/streaming/tokens-and-cancellation) that fires between
   attempts stops the retry loop.
 
-Run `pnpm demo:mapreduce` to watch flaky workers retry to success while no item
-is ever processed twice.
+Run `pnpm --filter @ilmek/examples demo:mapreduce` (in `ts/`, after a build) or
+`dotnet run --project examples/Ilmek.Examples -- mapreduce` (in `dotnet/`) to
+watch flaky workers retry to success while no item is ever processed twice.

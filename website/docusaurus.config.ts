@@ -24,13 +24,14 @@ const config: Config = {
   projectName: "ilmek",
   trailingSlash: false,
 
-  onBrokenLinks: "warn",
+  onBrokenLinks: "throw",
+  onBrokenAnchors: "throw",
   markdown: {
     // Parse .md as CommonMark unless a file opts into MDX (JSX/.mdx). Keeps
     // `<TState>`, `{ node: update }` etc. in prose/tables from being read as JSX.
     format: "detect",
     hooks: {
-      onBrokenMarkdownLinks: "warn",
+      onBrokenMarkdownLinks: "throw",
       onBrokenMarkdownImages: "warn",
     },
   },

@@ -32,7 +32,9 @@ npm install @ilmek/checkpoint-sqlite     # single-process, one file
 npm install @ilmek/checkpoint-postgres   # threads shared across processes
 ```
 
-Requires Node ≥ 22.5 for the SQLite checkpointer (built-in `node:sqlite`).
+The SQLite checkpointer requires Node ≥ 22.5 (built-in `node:sqlite`), and so do
+the integration packages — `@ilmek/skills`, `@ilmek/mcp` and `@ilmek/a2a` (see
+[Skills](/skills), [MCP](/mcp), [A2A](/a2a)).
 
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
@@ -48,7 +50,8 @@ process are opt-in via a checkpointer package:
 dotnet add package Ilmek.Checkpointer.Sqlite   # single-process, one file
 ```
 
-Targets .NET 9.
+Targets .NET 9. The integrations ship as `Ilmek.Skills`, `Ilmek.Mcp` and
+`Ilmek.A2A` (see [Skills](/skills), [MCP](/mcp), [A2A](/a2a)).
 
 </TabItem>
 </Tabs>
@@ -80,7 +83,7 @@ const g = graph("support", SupportState)
   .compile();
 
 const { status, state } = await run(g, { messages: ["hi"] });
-console.log(status, state.messages);   // "done" [ "hi", "hi" ]
+console.log(status, state?.messages);   // "done" [ "hi", "hi" ]
 ```
 
 </TabItem>
@@ -103,7 +106,7 @@ var g = Graph.Create<SupportState>("support")
     .Compile();
 
 var input = Update.For<SupportState>().Append(s => s.Messages, "hi");
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}]");
 ```
 
@@ -125,7 +128,7 @@ for await (const ev of stream(g, { messages: ["hi"] })) console.log(ev);
 <TabItem value="csharp" label=".NET (C#)">
 
 ```csharp
-await foreach (var ev in IlmekRuntime.Stream(g, input)) Console.WriteLine(ev);
+await foreach (var ev in g.StreamEvents(input)) Console.WriteLine(ev);
 ```
 
 </TabItem>
@@ -210,8 +213,8 @@ var g = Graph.Create<CheckoutState>("checkout")
 
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
-var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done
+var paused = await g.RunAsync(input, opts);      // Status: Interrupted
+var done   = await g.ResumeAsync("yes", opts);   // Status: Done
 ```
 
 </TabItem>
@@ -219,7 +222,9 @@ var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done
 
 `InMemoryCheckpointer` is enough to feel the model. For a pause that survives a
 process restart, swap it for [SQLite](/checkpointers/sqlite) or
-[Postgres](/checkpointers/postgres) — nothing else in your code changes. And
+[Postgres](/checkpointers/postgres) (TypeScript only, for now) — the graph code
+stays the same, as long as step results survive a JSON round-trip — see
+[Serializable values](/model/journal#serializable-values). And
 *resume from the line* means exactly this: not a restored call stack, but **an
 effect that cannot happen twice**.
 
@@ -232,7 +237,7 @@ exactly once:
 <TabItem value="ts" label="TypeScript">
 
 ```bash
-cd ts && pnpm build
+cd ts && pnpm install && pnpm build
 pnpm --filter @ilmek/examples demo          # interactive checkout
 pnpm --filter @ilmek/examples demo:stream   # tokens streaming + a mid-stream cancel
 pnpm --filter @ilmek/examples demo:mapreduce # fan-out + routing + safe retry

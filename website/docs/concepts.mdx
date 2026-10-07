@@ -82,8 +82,8 @@ var g = Graph.Create<CheckoutState>("checkout")
 
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
-var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done — but charged twice
+var paused = await g.RunAsync(input, opts);      // Status: Interrupted
+var done   = await g.ResumeAsync("yes", opts);   // Status: Done — but charged twice
 ```
 
 </TabItem>
@@ -174,8 +174,8 @@ var g = Graph.Create<CheckoutState>("checkout")
 
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = new InMemoryCheckpointer() };
 var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
-var paused = await IlmekRuntime.RunAsync(g, input, opts);        // Status: Interrupted
-var done   = await IlmekRuntime.ResumeAsync(g, "yes", opts);    // Status: Done — charged once
+var paused = await g.RunAsync(input, opts);      // Status: Interrupted
+var done   = await g.ResumeAsync("yes", opts);   // Status: Done — charged once
 ```
 
 </TabItem>
@@ -203,8 +203,8 @@ feature set falls out instead of being special-cased:
 > A node body must be deterministic **modulo steps**. Every side effect and every
 > nondeterministic read — clock, RNG, uuid, network, DB, LLM — goes in a step.
 
-Obey it and replay is invisible. Violate it and **strict mode** (on by default in
-dev/test) names the key that diverged, instead of letting a silent double-charge
+Obey it and replay is invisible. Violate it and **strict mode** (on by default —
+`strict: true`) names the key that diverged, instead of letting a silent double-charge
 reach production. See [The journal](/model/journal) for the divergence rules.
 
 ## A wrinkle worth knowing up front
@@ -254,7 +254,7 @@ const g = graph("charge", ChargeState)
   .compile();
 
 const { status, state } = await run(g, { cart: ["coffee"] });
-console.log(status, state.log);   // "done" [ "ok" ]
+console.log(status, state?.log);   // "done" [ "ok" ]
 ```
 
 </TabItem>
@@ -292,7 +292,7 @@ var g = Graph.Create<ChargeState>("charge")
     .Compile();
 
 var input = Update.For<ChargeState>().Set(s => s.Cart, new List<string> { "coffee" });
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 ```
 

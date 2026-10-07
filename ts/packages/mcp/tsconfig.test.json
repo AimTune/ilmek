@@ -1,11 +1,12 @@
 {
-  "//": "Typecheck src + tests. Tests import the built @ilmek/core, so run `tsc -b` first.",
+  "//": "Typecheck src + tests. Tests import the built @ilmek/core, so run `tsc -b` first. skipLibCheck: test/types/ compiles against the official MCP SDK, whose .d.ts files assume DOM globals (HeadersInit); assignability between its types and ours is still checked.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "composite": false,
     "declaration": false,
     "declarationMap": false,
+    "skipLibCheck": true,
     "rootDir": "."
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],

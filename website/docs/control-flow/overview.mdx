@@ -67,7 +67,7 @@ const g = graph("shout", ShoutState)
   .compile();
 
 const { status, state } = await run(g, { words: ["red", "green", "blue"] });
-console.log(status, state.shouted);   // "done" [ "RED", "GREEN", "BLUE", "AGAIN" ]
+console.log(status, state?.shouted);   // "done" [ "RED", "GREEN", "BLUE", "AGAIN" ]
 ```
 
 </TabItem>
@@ -127,11 +127,13 @@ var g = Graph.Create<ShoutState>("shout")
     .Compile();
 
 var input = Update.For<ShoutState>().Set(s => s.Words, new List<string> { "red", "green", "blue" });
-var result = await IlmekRuntime.RunAsync(g, input);
+var result = await g.RunAsync(input);
 Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Shouted)}]");
 ```
 
 </TabItem>
 </Tabs>
 
-`pnpm demo:mapreduce` runs all three together.
+`pnpm --filter @ilmek/examples demo:mapreduce` (in `ts/`, after a build) and
+`dotnet run --project examples/Ilmek.Examples -- mapreduce` (in `dotnet/`) run
+all three together.

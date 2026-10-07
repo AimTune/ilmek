@@ -33,7 +33,7 @@ npm install @ilmek/core @ilmek/mcp @modelcontextprotocol/sdk
 `@ilmek/mcp` has **zero dependencies**: its client port is duck-typed to the
 official SDK's `Client` (`listTools`, `callTool`, `listResources`,
 `readResource`, `listPrompts`, `getPrompt`), so a connected SDK client passes
-as-is.
+as-is, with no cast — `exactOptionalPropertyTypes` included.
 
 ```ts
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -61,6 +61,7 @@ you implement over the official client once — resources and prompts have
 default implementations, so a tools-only adapter is two methods:
 
 ```csharp
+using System.Text.Json;
 using Ilmek.Mcp;
 using ModelContextProtocol.Client;
 
@@ -154,10 +155,33 @@ The result is **normalized** to plain data — that is what the journal keeps:
 | `isError` | the server flagged the result as an error — the tool ran; it failed |
 | `content` | the raw blocks, for images, audio, resource links |
 
+On a resume the recorded result comes back the same on any checkpointer: in
+.NET, `CallAsync` returns a typed `McpToolResult` after a SQLite reload too.
+
 `call` uses the journal key `mcp:<server>:<tool>`; pass `{ key }` / `key:` when a
 node calls the same tool twice with different arguments. `invoke` is the raw,
 unjournaled call, for a host that journals on its own (mekik's `mekik.tool`
 does).
+
+### When something goes wrong
+
+- **The tool ran and failed** — the server set `isError`. That is a *result*,
+  not an exception: it is journaled like any other, and `text` usually says what
+  went wrong. Decide in the node whether to retry, report or route.
+- **Unknown tool name** — `call` / `invoke` reject (the returned promise or task
+  faults; nothing is thrown synchronously) with an `Error`
+  (`KeyNotFoundException` in .NET) naming the toolbox and the tool.
+- **Sloppy wire data** — a missing or `null` `content`, `null` blocks, a
+  `tools/list` without a list, a prompt message without content: all normalize
+  to empty values instead of crashing the node.
+- **A server without resources or prompts** — `resources()` / `prompts()` return
+  `[]`; fetching one throws (`Error` / `NotSupportedException`).
+- **Transport and protocol errors** from the client itself pass through
+  untouched. Inside `call` they fail the step, so nothing is journaled and the
+  call runs again on the next attempt — a node [retry policy](/control-flow/retry)
+  covers flaky servers.
+- In a [stored graph](#mcp-as-graph-data), an unknown server or tool is a
+  `GraphError` (`GraphException`) when the graph is built.
 
 ## Resources and prompts
 
@@ -184,7 +208,10 @@ var review = await github.PromptAsync(ctx, "code-review", new Dictionary<string,
 
 A resource reads as the text of its contents; a prompt renders as its messages'
 text blocks, messages separated by a blank line. A server that advertises
-neither lists none, and fetching throws.
+neither lists none, and fetching throws. Both journal like `call`, under
+`mcp:<server>:resource:<uri>` and `mcp:<server>:prompt:<name>`;
+`fetchResource` / `fetchPrompt` (`FetchResourceAsync` / `FetchPromptAsync`) are
+the unjournaled reads.
 
 ### Prompts as skills
 
@@ -196,7 +223,7 @@ turns a toolbox's prompts into skills a catalog can hold:
 <TabItem value="ts" label="TypeScript">
 
 ```ts
-import { SkillCatalog } from "@ilmek/skills";
+import { discoverSkills, SkillCatalog } from "@ilmek/skills";
 import { mcpSkills } from "@ilmek/mcp";
 
 const skills = new SkillCatalog([...(await discoverSkills("./skills")), ...(await mcpSkills(github))]);
@@ -220,7 +247,8 @@ var skills = new SkillCatalog((await SkillLoader.DiscoverAsync("./skills")).Conc
 </Tabs>
 
 Names are coerced to the skill name rule and prefixed with the server name
-(`github-code-review`). A prompt with **no required arguments** is fetched once
+(`github-code-review`; pass `{ prefix }` / `prefix:` to change it, `""` for bare
+names). A prompt with **no required arguments** is fetched once
 and its text becomes the instructions; a prompt that needs arguments cannot be
 fetched blind, so its instructions list the arguments and how to fetch it —
 the model still learns it exists. `metadata` carries `server`, `prompt` and
