@@ -114,28 +114,42 @@ public sealed class A2aAgent
     {
         var p = new Dictionary<string, object?> { ["id"] = taskId };
         if (historyLength is { } n) p["historyLength"] = (long)n;
-        return Normalize((IReadOnlyDictionary<string, object?>)(await RpcAsync("tasks/get", p, ct).ConfigureAwait(false))!);
+        return Normalize(await RpcAsync("tasks/get", p, ct).ConfigureAwait(false));
     }
 
     /// <summary>Raw <c>tasks/cancel</c>.</summary>
     public async Task<A2aResult> CancelTaskAsync(string taskId, CancellationToken ct = default) =>
-        Normalize((IReadOnlyDictionary<string, object?>)(await RpcAsync("tasks/cancel", new Dictionary<string, object?> { ["id"] = taskId }, ct).ConfigureAwait(false))!);
+        Normalize(await RpcAsync("tasks/cancel", new Dictionary<string, object?> { ["id"] = taskId }, ct).ConfigureAwait(false));
 
-    private async Task<object?> RpcAsync(string method, IReadOnlyDictionary<string, object?> parameters, CancellationToken ct)
+    private async Task<IReadOnlyDictionary<string, object?>> RpcAsync(string method, IReadOnlyDictionary<string, object?> parameters, CancellationToken ct)
     {
         var request = new Dictionary<string, object?> { ["jsonrpc"] = "2.0", ["id"] = Interlocked.Increment(ref _rpcSeq), ["method"] = method, ["params"] = parameters };
         var response = await _transport.PostAsync(request, ct).ConfigureAwait(false);
-        if (response.GetValueOrDefault("error") is IReadOnlyDictionary<string, object?> error)
-            throw new A2aException(Convert.ToInt32(error.GetValueOrDefault("code") ?? -32603), error.GetValueOrDefault("message") as string ?? "error", error.GetValueOrDefault("data"));
-        return response.GetValueOrDefault("result");
+        if (response?.GetValueOrDefault("error") is IReadOnlyDictionary<string, object?> error)
+        {
+            // A sloppy server may send a non-numeric (or out-of-range) code: keep the
+            // error an A2aException rather than letting the conversion throw instead.
+            var code = error.GetValueOrDefault("code") switch
+            {
+                long l and >= int.MinValue and <= int.MaxValue => (int)l,
+                int i => i,
+                _ => InternalError,
+            };
+            throw new A2aException(code, error.GetValueOrDefault("message") as string ?? "error", error.GetValueOrDefault("data"));
+        }
+        return response?.GetValueOrDefault("result") as IReadOnlyDictionary<string, object?>
+            ?? throw new A2aException(InternalError, $"A2A {method}: malformed JSON-RPC response — no result object and no error");
     }
 
+    /// <summary>JSON-RPC "internal error" — the code for a response this client cannot use.</summary>
+    private const int InternalError = -32603;
+
     /// <summary><c>message/send</c> may return a bare Message for agents that skip tasks; wrap it as a completed task.</summary>
-    private static IReadOnlyDictionary<string, object?> AsTask(object? result, string agent)
+    private static IReadOnlyDictionary<string, object?> AsTask(IReadOnlyDictionary<string, object?> r, string agent)
     {
-        var r = result as IReadOnlyDictionary<string, object?> ?? throw new InvalidOperationException("message/send returned no object");
         if (r.GetValueOrDefault("kind") as string == "task" || (r.ContainsKey("status") && r.ContainsKey("id"))) return r;
-        var messageId = r.GetValueOrDefault("messageId") as string ?? "";
+        if (r.GetValueOrDefault("messageId") is not string messageId || r.GetValueOrDefault("parts") is not IEnumerable<object?>)
+            throw new A2aException(InternalError, "A2A message/send: the result is neither a task nor a message");
         return new Dictionary<string, object?>
         {
             ["kind"] = "task",
@@ -149,7 +163,8 @@ public sealed class A2aAgent
     /// <summary>Reduce a task to <see cref="A2aResult"/>. Pure — both languages pin it through conformance/a2a.</summary>
     public static A2aResult Normalize(IReadOnlyDictionary<string, object?> task)
     {
-        var status = task.GetValueOrDefault("status") as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
+        var status = task.GetValueOrDefault("status") as IReadOnlyDictionary<string, object?>
+            ?? throw new A2aException(InternalError, $"A2A task {task.GetValueOrDefault("id")} has no status");
         var statusMessage = status.GetValueOrDefault("message") as IReadOnlyDictionary<string, object?>;
         var artifacts = (task.GetValueOrDefault("artifacts") as IEnumerable<object?> ?? []).OfType<IReadOnlyDictionary<string, object?>>();
         return new A2aResult
