@@ -220,8 +220,9 @@ describe("PostgresCheckpointer", () => {
 // ── optional live-Postgres smoke test (skipped without DATABASE_URL) ──────────
 
 test("live Postgres round-trip", { skip: !process.env.DATABASE_URL }, async () => {
-    // Only runs when a real database is provided, e.g.
-    //   DATABASE_URL=postgres://… node --test packages/checkpoint-postgres/test/*.test.ts
+    // Only runs when a real database is provided, e.g. from ts/ (with `pg`
+    // installed — it is not a dependency of this package):
+    //   DATABASE_URL=postgres://… node --test packages/checkpointers/postgres/test/postgres.test.ts
     // Kept out of CI; documents how to point the same code at a real client.
     const { default: pg } = await import("pg" as string);
     const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
