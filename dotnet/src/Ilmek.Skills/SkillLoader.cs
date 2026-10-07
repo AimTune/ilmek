@@ -67,6 +67,8 @@ public static class SkillLoader
     private static List<string> ListResources(string dir)
     {
         var result = new List<string>();
+        var realRoot = RealPath.Resolve(dir);
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { realRoot };
         Walk(dir);
         result.Sort(StringComparer.Ordinal);
         return result;
@@ -76,8 +78,19 @@ public static class SkillLoader
             foreach (var entry in new DirectoryInfo(current).EnumerateFileSystemInfos())
             {
                 if (entry.Name.StartsWith('.')) continue;
+                // A symlink/junction is only followed (or listed) when it resolves
+                // inside the skill: one pointing out would advertise a resource
+                // ReadResourceAsync refuses, and one pointing at an ancestor would
+                // make this walk recurse until the path is too long.
+                if (entry.LinkTarget is not null)
+                {
+                    var real = RealPath.Resolve(entry.FullName);
+                    if (!RealPath.IsStrictlyInside(realRoot, real)) continue;
+                    if ((entry.Attributes & FileAttributes.Directory) != 0 && !visited.Add(real)) continue;
+                }
                 if (entry is DirectoryInfo || (entry.Attributes & FileAttributes.Directory) != 0)
                 {
+                    if (entry.LinkTarget is null) visited.Add(RealPath.Resolve(entry.FullName));
                     Walk(entry.FullName);
                     continue;
                 }
