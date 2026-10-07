@@ -1,0 +1,11 @@
+flowchart TD
+  __start__([START])
+  agent["agent"]
+  checkout["checkout"]
+  answer["answer"]
+  __end__([END])
+  __start__ --> agent
+  agent -->|"intent == #quot;buy#quot;"| checkout
+  agent -->|"intent != #quot;buy#quot;"| answer
+  checkout --> __end__
+  answer --> __end__

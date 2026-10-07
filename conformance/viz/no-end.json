@@ -1,0 +1,11 @@
+{
+  "spec": {
+    "name": null,
+    "channels": {},
+    "nodes": [{ "id": "loop", "type": "noop" }, { "id": "orphan", "type": "noop" }],
+    "edges": [
+      { "from": "__start__", "to": "loop" },
+      { "from": "loop", "to": "loop" }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+flowchart BT
+  __start__([START])
+  plan["plan"]
+  tools["tools"]
+  respond["respond"]
+  __end__([END])
+  __start__ --> plan
+  tools --> plan
+  respond --> __end__

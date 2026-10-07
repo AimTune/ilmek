@@ -1,0 +1,22 @@
+flowchart TD
+  __start__([START])
+  n0_["fetch:docs"]
+  n1["end"]
+  n2["my node"]
+  n0["n0"]
+  n4["Subgraph"]
+  n5["a-b"]
+  n6["say #quot;#35;1#quot;"]
+  n7["çay"]
+  _ok_1["_ok_1"]
+  __end__([END])
+  __start__ --> n0_
+  n0_ --> n1
+  n1 --> n2
+  n2 --> n0
+  n0 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 --> _ok_1
+  _ok_1 --> __end__

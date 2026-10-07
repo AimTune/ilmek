@@ -42,7 +42,7 @@ const g = graph("support", SupportState)
   .node("agent", Agent.run)
   .node("checkout", Checkout.run)
   .edge(START, "agent")
-  .edge("agent", "checkout", (state) => state.intent === "buy")   // conditional
+  .edge("agent", "checkout", { when: (state) => state.intent === "buy" })   // conditional
   .edge("checkout", END)
   .compile();
 
@@ -98,6 +98,20 @@ Console.WriteLine(result.Status);   // Done
 </TabItem>
 </Tabs>
 
+As [`toMermaid(g)`](#visualizing-a-graph) draws it. The dashed edge is the
+hand-written guard, which is code, so the picture can't spell out its condition:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  agent["agent"]
+  checkout["checkout"]
+  __end__([END])
+  __start__ --> agent
+  agent -.->|"guard"| checkout
+  checkout --> __end__
+```
+
 ## Nodes
 
 A node is an `async (state, ctx) => update` function. It reads `state`, does its
@@ -133,7 +147,7 @@ const g = graph("route", RouteState)
   .node("agent", async (state) => ({ intent: "buy" }))
   .node("checkout", async (state) => ({ log: ["order placed"] }))
   .edge(START, "agent")
-  .edge("agent", "checkout", (state) => state.intent === "buy")   // taken only when it passes
+  .edge("agent", "checkout", { when: (state) => state.intent === "buy" })   // taken only when it passes
   .edge("checkout", END)
   .compile();
 
@@ -194,7 +208,8 @@ const g = graph("plan", PlanState)
   .node("plan", async (state) => ({}))
   .node("tools", async (state) => ({ log: ["ran tool"] }))
   .node("respond", async (state) => ({ log: ["answered"] }))
-  .router("plan", (state) => (state.needsTool ? "tools" : "respond"))   // next hop, chosen dynamically
+  // next hop, chosen dynamically; `targets` only tells toMermaid where it can go
+  .router("plan", (state) => (state.needsTool ? "tools" : "respond"), { targets: ["tools", "respond"] })
   .edge(START, "plan")
   .edge("tools", END)
   .edge("respond", END)
@@ -221,7 +236,8 @@ var g = Graph.Create<PlanState>("plan")
     .Node("plan", (state, ctx) => null)
     .Node("tools", (state, ctx) => Update.For<PlanState>().Append(s => s.Log, "ran tool"))
     .Node("respond", (state, ctx) => Update.For<PlanState>().Append(s => s.Log, "answered"))
-    .Router("plan", (state, ctx) => new[] { state.NeedsTool ? "tools" : "respond" })   // next hop, chosen dynamically
+    // next hop, chosen dynamically; `targets` only tells ToMermaid where it can go
+    .Router("plan", (state, ctx) => new[] { state.NeedsTool ? "tools" : "respond" }, targets: new[] { "tools", "respond" })
     .Edge(Graph.Start, "plan")
     .Edge("tools", Graph.End)
     .Edge("respond", Graph.End)
@@ -235,11 +251,168 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Log)}]");
 </TabItem>
 </Tabs>
 
+The router's `targets` change nothing at run time. They tell
+[`toMermaid`](#visualizing-a-graph) where the router can go, so it draws a dashed
+edge to each:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  plan["plan"]
+  tools["tools"]
+  respond["respond"]
+  __end__([END])
+  plan -.-> tools
+  plan -.-> respond
+  __start__ --> plan
+  tools --> __end__
+  respond --> __end__
+```
+
 A router (and any conditional predicate) **must be pure**. It runs inside
 *planning*, not inside a task — so it has **no journal** and must not perform side
 effects. **Route on state; compute in nodes.** For data-driven fan-out, see
 [`send`](/control-flow/send); for a node that decides its own next hop after
 seeing its own update, see [`command`](/control-flow/command).
+
+## Visualizing a graph
+
+`toMermaid(g)` (`g.ToMermaid()` in .NET) renders a graph as a
+[Mermaid](https://mermaid.js.org) flowchart. Paste the text into a Markdown file,
+a GitHub comment or the [Mermaid live editor](https://mermaid.live). Pass a
+checkpoint as `highlight` to see where a thread stands:
+
+<Tabs groupId="lang">
+<TabItem value="ts" label="TypeScript">
+
+```ts
+import { graph, channel, toMermaid, run, InMemoryCheckpointer, START, END } from "@ilmek/core";
+import type { ChannelMap } from "@ilmek/core";
+
+/** Review state — a draft and an append-only log. */
+const ReviewState = {
+  draft: channel.lastWrite<string>(""),
+  log: channel.append<string>(),
+} satisfies ChannelMap;
+
+const g = graph("review", ReviewState)
+  .node("write", () => ({ draft: "v1" }))
+  .node("review", async (state, ctx) => {
+    const ok = await ctx.interrupt<boolean>({ question: `Publish ${state.draft}?` });
+    return { log: [ok ? "approved" : "rejected"] };
+  })
+  .node("publish", () => ({ log: ["published"] }))
+  .edge(START, "write")
+  .edge("write", "review")
+  .edge("review", "publish")
+  .edge("publish", END)
+  .compile();
+
+// 1. The shape of the graph.
+console.log(toMermaid(g, { direction: "LR" }));
+
+// 2. Where a thread stands: park it on the review, then highlight its checkpoint.
+const checkpointer = new InMemoryCheckpointer();
+await run(g, {}, { threadId: "doc-1", checkpointer });
+const checkpoint = await checkpointer.get("doc-1");
+console.log(toMermaid(g, { direction: "LR", highlight: checkpoint }));
+```
+
+</TabItem>
+<TabItem value="csharp" label=".NET (C#)">
+
+```csharp
+using Ilmek;
+
+var g = Graph.Create<ReviewState>("review")
+    .Node("write", (state, ctx) => Update.For<ReviewState>().Set(s => s.Draft, "v1"))
+    .Node("review", async (state, ctx) =>
+    {
+        var ok = await ctx.InterruptAsync<bool>(new { question = $"Publish {state.Draft}?" });
+        return Update.For<ReviewState>().Append(s => s.Log, ok ? "approved" : "rejected");
+    })
+    .Node("publish", (state, ctx) => Update.For<ReviewState>().Append(s => s.Log, "published"))
+    .Edge(Graph.Start, "write")
+    .Edge("write", "review")
+    .Edge("review", "publish")
+    .Edge("publish", Graph.End)
+    .Compile();
+
+// 1. The shape of the graph.
+Console.WriteLine(g.ToMermaid(new MermaidOptions { Direction = "LR" }));
+
+// 2. Where a thread stands: park it on the review, then highlight its checkpoint.
+var checkpointer = new InMemoryCheckpointer();
+await g.RunAsync(options: new RunOptions { ThreadId = "doc-1", Checkpointer = checkpointer });
+var checkpoint = await checkpointer.GetAsync("doc-1");
+Console.WriteLine(g.ToMermaid(new MermaidOptions { Direction = "LR", Highlight = checkpoint }));
+
+/// <summary>Review state — a draft and an append-only log.</summary>
+sealed class ReviewState
+{
+    public string Draft { get; set; } = "";
+    [Append] public List<string> Log { get; set; } = new();
+}
+```
+
+</TabItem>
+</Tabs>
+
+The second call prints the thread parked on `review`:
+
+```text
+flowchart LR
+  __start__([START])
+  write["write"]
+  review["⏸ review"]
+  publish["publish"]
+  __end__([END])
+  __start__ --> write
+  write --> review
+  review --> publish
+  publish --> __end__
+  classDef pending stroke-width:3px,stroke-dasharray:5 3
+  class review pending
+```
+
+```mermaid
+flowchart LR
+  __start__([START])
+  write["write"]
+  review["⏸ review"]
+  publish["publish"]
+  __end__([END])
+  __start__ --> write
+  write --> review
+  review --> publish
+  publish --> __end__
+  classDef pending stroke-width:3px,stroke-dasharray:5 3
+  class review pending
+```
+
+How to read the diagram:
+
+| You see | It means |
+|---|---|
+| `A --> B` | A static edge. |
+| `A -->` with a label like `intent == "buy"` | A guarded edge with a [declarative predicate](/graphs-as-data). The label is the predicate. |
+| `A -.->` labelled `guard` | A guarded edge whose guard is a hand-written function. It is code, so the condition can't be shown. |
+| `A -.-> B` | A router that may go to `B`. One dashed edge per declared `targets` entry. |
+| `A -.-> ?` | A router that declared no `targets`. |
+| bold outline (`next`) | With `highlight`: a task of the checkpoint's next superstep. |
+| ⏸, dashed outline (`pending`) | With `highlight`: a node the thread is parked on. |
+
+The options are `direction` (`"TD"` by default, or `"TB"`, `"BT"`, `"LR"`, `"RL"`),
+`highlight` (a checkpoint, or anything with `next` and `pending`) and
+`includeRouters` (default `true`). Node names that are not plain identifiers,
+such as `fetch:docs` or `end`, get generated ids. Their labels still show the real
+name.
+
+A [`command`](/control-flow/command)'s goto is decided inside the node, so it
+never appears in the picture. A router draws only the `targets` it declares. The
+engine doesn't check them, so keep them in step with the router body. A stored
+spec renders the same way without building it. See
+[Graphs as data](/graphs-as-data#visualizing-a-stored-spec).
 
 ## Graphs are data
 

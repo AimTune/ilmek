@@ -42,6 +42,19 @@ nodes received the same answer. **Nothing raised.** A conformance list is worth
 exactly the failures it has caught — this is the one that earned the
 [`id` vs `key` rule](/model/interrupts#id-vs-key).
 
+## Companion fixtures
+
+Some behavior is pure data in, data out. For that, both languages read one shared
+fixture under [`conformance/`](https://github.com/AimTune/ilmek/tree/main/conformance)
+and must produce the same result:
+
+| Fixture | Pins |
+|---|---|
+| `conformance/viz` | [Mermaid export](/model/graph#visualizing-a-graph) (MODEL.md §9.1). Each case is a spec plus code-only extras (routers, hand-written guards) and options. The rendered text must match `<case>.mmd` **byte for byte**, both from the compiled graph and, when the case has no code, from the spec. |
+| `conformance/skills` | The [SKILL.md reader](/skills): parsed skills and the level-1 prompt. |
+| `conformance/mcp` | The [MCP toolbox](/mcp): tool naming, result normalization, prompts as skills. |
+| `conformance/a2a` | The [A2A client](/a2a): how a task reduces to a result. |
+
 ## Status
 
 Green against the list in both languages: TypeScript and .NET. See the

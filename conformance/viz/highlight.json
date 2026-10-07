@@ -1,0 +1,23 @@
+{
+  "spec": {
+    "name": "review",
+    "channels": { "draft": { "reducer": "last_write" } },
+    "nodes": [
+      { "id": "write", "type": "noop" },
+      { "id": "review", "type": "noop" },
+      { "id": "legal", "type": "noop" },
+      { "id": "publish", "type": "noop" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "write" },
+      { "from": "write", "to": "review" },
+      { "from": "write", "to": "legal" },
+      { "from": "review", "to": "publish" },
+      { "from": "legal", "to": "publish" },
+      { "from": "publish", "to": "__end__" }
+    ]
+  },
+  "options": {
+    "highlight": { "next": ["review", "legal", "publish", "legal"], "pending": ["review"] }
+  }
+}

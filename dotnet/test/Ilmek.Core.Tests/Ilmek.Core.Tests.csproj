@@ -20,6 +20,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Mermaid fixture is shared with the TypeScript suite and lives at the
+         repo root; copy it next to the test assembly (see Ilmek.Skills.Tests). -->
+    <Content Include="../../../conformance/viz/*"
+             Link="viz/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 

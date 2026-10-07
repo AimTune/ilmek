@@ -46,7 +46,7 @@ const g = graph("fanout", FanState)
   .node("collect", (state) => ({ results: [`collected ${state.results.length}`] }))
   .edge(START, "fanout")
   // one worker task per item, each with its OWN input (§14 send)
-  .router("fanout", (state) => state.items.map((item) => send("worker", { item })))
+  .router("fanout", (state) => state.items.map((item) => send("worker", { item })), { targets: ["worker"] })
   // fan-in is just a superstep boundary: collect runs once, after all workers reduce
   .edge("worker", "collect")
   .edge("collect", END)
@@ -86,7 +86,8 @@ var g = Graph.Create<FanState>("fanout")
         Update.For<FanState>().Append(s => s.Results, $"collected {state.Results.Count}"))
     .Edge(Graph.Start, "fanout")
     // one worker task per item, each with its OWN input (§14 send)
-    .Router("fanout", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new WorkerInput { Item = item })))
+    .Router("fanout", (state, ctx) => state.Items.Select(item => (object)new Send("worker", new WorkerInput { Item = item })),
+        targets: new[] { "worker" })
     // fan-in is just a superstep boundary: collect runs once, after all workers reduce
     .Edge("worker", "collect")
     .Edge("collect", Graph.End)
@@ -99,6 +100,22 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]
 
 </TabItem>
 </Tabs>
+
+The router declares `targets: ["worker"]`, so [`toMermaid`](/model/graph#visualizing-a-graph)
+draws the fan-out. The three `send`s to `worker` share one dashed edge:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  fanout["fanout"]
+  worker["worker"]
+  collect["collect"]
+  __end__([END])
+  __start__ --> fanout
+  fanout -.-> worker
+  worker --> collect
+  collect --> __end__
+```
 
 ## Semantics
 
@@ -194,3 +211,16 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Results)}]
 
 </TabItem>
 </Tabs>
+
+Here `plan` has no edge in the picture. Its `command` goto is decided inside the
+node, so [`toMermaid`](/model/graph#visualizing-a-graph) can't draw it:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  plan["plan"]
+  worker["worker"]
+  __end__([END])
+  __start__ --> plan
+  worker --> __end__
+```

@@ -1,0 +1,21 @@
+{
+  "spec": {
+    "name": "routers-hidden",
+    "channels": {},
+    "nodes": [
+      { "id": "plan", "type": "noop" },
+      { "id": "tools", "type": "noop" },
+      { "id": "respond", "type": "noop" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "plan" },
+      { "from": "tools", "to": "plan" },
+      { "from": "respond", "to": "__end__" }
+    ]
+  },
+  "routers": [
+    { "from": "plan", "targets": ["tools", "respond"] },
+    { "from": "plan", "targets": null }
+  ],
+  "options": { "includeRouters": false, "direction": "BT" }
+}

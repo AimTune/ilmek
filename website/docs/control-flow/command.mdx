@@ -86,6 +86,19 @@ Console.WriteLine($"{result.Status} [{string.Join(", ", result.State!.Messages)}
 </TabItem>
 </Tabs>
 
+[`toMermaid(g)`](/model/graph#visualizing-a-graph) shows only the static edges.
+`agent` looks like a dead end because its goto is decided inside the node, after
+it runs. A diagram cannot know it in advance:
+
+```mermaid
+flowchart TD
+  __start__([START])
+  agent["agent"]
+  tools["tools"]
+  __start__ --> agent
+  tools --> agent
+```
+
 ## Semantics
 
 - `update` is reduced exactly like a normal node return — same channels, same

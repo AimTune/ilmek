@@ -1,0 +1,29 @@
+{
+  "spec": {
+    "name": "routers",
+    "channels": { "plan": { "reducer": "last_write" } },
+    "nodes": [
+      { "id": "plan", "type": "noop" },
+      { "id": "tools", "type": "noop" },
+      { "id": "respond", "type": "noop" },
+      { "id": "worker", "type": "noop" },
+      { "id": "r0", "type": "noop" },
+      { "id": "audit", "type": "noop" }
+    ],
+    "edges": [
+      { "from": "__start__", "to": "plan" },
+      { "from": "tools", "to": "plan" },
+      { "from": "worker", "to": "respond" },
+      { "from": "respond", "to": "__end__" }
+    ]
+  },
+  "routers": [
+    { "from": "plan", "targets": ["tools", "worker", "respond", "__end__"] },
+    { "from": "respond", "targets": null },
+    { "from": "r0", "targets": null }
+  ],
+  "guards": [
+    { "from": "plan", "to": "audit" },
+    { "from": "audit", "to": "r0" }
+  ]
+}

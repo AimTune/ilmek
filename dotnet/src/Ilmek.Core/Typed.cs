@@ -213,6 +213,9 @@ public sealed class CompiledGraph<TState> where TState : class, new()
     }
 
     internal TState Materialize(State state) => TypedSchema.Materialize<TState>(state, Props);
+
+    /// <summary>Render this graph as a Mermaid flowchart (MODEL.md §9.1).</summary>
+    public string ToMermaid(MermaidOptions? options = null) => Inner.ToMermaid(options);
 }
 
 /// <summary>
@@ -322,10 +325,14 @@ public sealed class Graph<TState> where TState : class, new()
         return this;
     }
 
-    /// <summary>A conditional edge returning node names and/or sends (MODEL.md §14).</summary>
-    public Graph<TState> Router(string from, Func<TState, IContext, IEnumerable<object>> fn)
+    /// <summary>
+    /// A conditional edge returning node names and/or sends (MODEL.md §14).
+    /// <paramref name="targets"/> is drawing metadata — see <see cref="Graph.Router"/>.
+    /// </summary>
+    public Graph<TState> Router(string from, Func<TState, IContext, IEnumerable<object>> fn,
+        IReadOnlyList<string>? targets = null)
     {
-        _inner.Router(from, (state, ctx) => fn(Typed(state), ctx));
+        _inner.Router(from, (state, ctx) => fn(Typed(state), ctx), targets);
         return this;
     }
 

@@ -378,6 +378,49 @@ from day one, not a later feature, because retrofitting it is expensive.
 The drag-and-drop builder is therefore a CRUD app over this document plus a
 registry browser. Nothing in the engine knows it exists.
 
+### 9.1 Visualization
+
+A port SHOULD render a compiled graph and a stored spec as a Mermaid flowchart
+(`toMermaid(g | spec, opts)`). Rendering is a pure function of the graph, so the
+output is **byte-identical** across ports for the same input, and a spec renders
+exactly like the graph built from it. The shared fixture `conformance/viz` pins
+the algorithm:
+
+* Line 1 is `flowchart <direction>` (`TD` default; `TB`, `BT`, `LR`, `RL`).
+  Then come the nodes, then the edges, each indented two spaces, and the text
+  ends with `\n`.
+* Nodes appear in this order: `__start__([START])`, then every node as
+  `id["label"]` in declaration order, followed by any node an edge references
+  but the spec never declared. Next comes one `rN{"?"}` per router without
+  targets. `__end__([END])` comes last, and only when an edge or a declared
+  router target reaches it.
+* The id is the node name when it matches `[A-Za-z_][A-Za-z0-9_]*` and is not a
+  Mermaid keyword (compared case-insensitively: `end`, `graph`, `flowchart`,
+  `subgraph`, `style`, `class`, `classdef`, `click`, `linkstyle`, `direction`,
+  `default`, `call`, `href`, `interpolate`). Otherwise the id is `n<i>`, where
+  `i` is the node's position. `_` is appended until the id clashes with no
+  other. Router placeholders draw `r<k>` from the same pool after the nodes.
+* Edges appear in declaration order:
+  * a static edge is `a --> b`;
+  * a declarative guard is `a -->|"label"| b`;
+  * a hand-written guard is `a -.->|"guard"| b`;
+  * a router draws `a -.-> t` for each of its declared `targets` (drawing
+    metadata, not enforced), or `a -.-> rN` when it declares none. With
+    `includeRouters: false`, routers and their placeholders are left out.
+* A predicate label uses the operator the engine evaluates (§9: eq, neq, in, gt,
+  lt, truthy). It reads `ch == v`, `ch != v`, `ch in [v1, v2]`, `ch > v`,
+  `ch < v`, `truthy(ch)` or `not truthy(ch)`, with each value written as
+  `JSON.stringify` writes it.
+* Labels are escaped in this order: `#` → `#35;`, `"` → `#quot;`, `<` → `#lt;`,
+  `>` → `#gt;`, `` ` `` → `#96;`, and a line break → a space.
+* `highlight` takes a checkpoint's `next` and `pending`. Pending nodes get the
+  label `⏸ <name>` and the class `pending`. Next nodes that are not pending get
+  the class `next`. Each class is listed once, in declaration order:
+  `classDef next stroke-width:3px` / `class a,b next`, then
+  `classDef pending stroke-width:3px,stroke-dasharray:5 3` / `class c pending`.
+
+A node's `command` goto (§15) is decided inside the node, so it never appears.
+
 ## 10. Events
 
 A run yields a stream. Every event carries a common **envelope** plus its
@@ -480,6 +523,7 @@ responsive as the node's own signal handling.
 | thread state | `threadState(g, cp, threadId)` | `IlmekRuntime.ThreadStateAsync(g, cp, threadId)` |
 | checkpointer | `interface Checkpointer` | `interface ICheckpointer` |
 | spec round-trip | `fromSpec(spec, registry)` · `toSpec(g)` | `Spec.FromSpec(spec, registry)` · `Spec.ToSpec(g)` |
+| visualize (§9.1) | `toMermaid(g \| spec, opts?)` · `.router(from, fn, { targets })` | `g.ToMermaid(opts?)` · `Spec.ToMermaid(spec, opts?)` · `.Router(from, fn, targets)` |
 | node return | `update` \| `void` \| `command(...)` \| `throw` | update dict \| `null` \| `Command` \| `throw` |
 | entry / exit | `START` · `END` | `Graph.Start` · `Graph.End` |
 | cancellation (§10.3) | `AbortSignal` → `ctx.signal` | `CancellationToken` → `ctx.CancellationToken` |

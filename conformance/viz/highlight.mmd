@@ -1,0 +1,17 @@
+flowchart TD
+  __start__([START])
+  write["write"]
+  review["⏸ review"]
+  legal["legal"]
+  publish["publish"]
+  __end__([END])
+  __start__ --> write
+  write --> review
+  write --> legal
+  review --> publish
+  legal --> publish
+  publish --> __end__
+  classDef next stroke-width:3px
+  class legal,publish next
+  classDef pending stroke-width:3px,stroke-dasharray:5 3
+  class review pending

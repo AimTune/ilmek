@@ -75,6 +75,8 @@ export interface GraphEdge<C extends ChannelMap> {
     readonly router: RouterFn<C> | null;
     /** The declarative equivalent of `when`, when there is one. */
     readonly specWhen: SpecPredicate | null;
+    /** The nodes a router says it may return — metadata for `toMermaid`, not enforced. */
+    readonly targets: readonly string[] | null;
 }
 
 export interface CompiledGraph<C extends ChannelMap> {
@@ -95,6 +97,14 @@ export interface NodeOptions {
 export interface EdgeOptions<C extends ChannelMap> {
     when?: GuardFn<C>;
     specWhen?: SpecPredicate;
+}
+
+export interface RouterOptions {
+    /**
+     * The nodes (or `END`) this router may return, `send` targets included.
+     * Only drawn by `toMermaid` — the engine does not restrict the router to them.
+     */
+    targets?: readonly string[];
 }
 
 /**
@@ -168,16 +178,21 @@ export class GraphBuilder<C extends ChannelMap> {
             when: opts.when ?? null,
             router: null,
             specWhen: opts.specWhen ?? null,
+            targets: null,
         });
         return this;
     }
 
-    /** A conditional edge returning the target name(s) at plan time. */
-    router(from: string, fn: RouterFn<C>): this {
+    /**
+     * A conditional edge returning the target name(s) at plan time. Declare
+     * `targets` to let `toMermaid` draw where it can go.
+     */
+    router(from: string, fn: RouterFn<C>, opts: RouterOptions = {}): this {
         if (typeof fn !== "function") {
             throw new GraphError(`router on ${JSON.stringify(from)}: expected a function (state, ctx), got ${typeof fn}`);
         }
-        this.edges.push({ from, to: null, when: null, router: fn, specWhen: null });
+        const targets = opts.targets === undefined ? null : Object.freeze([...opts.targets]);
+        this.edges.push({ from, to: null, when: null, router: fn, specWhen: null, targets });
         return this;
     }
 
@@ -191,6 +206,13 @@ export class GraphBuilder<C extends ChannelMap> {
                 throw new GraphError(
                     `edge ${JSON.stringify(edge.from)} -> unknown node ${JSON.stringify(edge.to)}`,
                 );
+            }
+            for (const t of edge.targets ?? []) {
+                if (t !== END && !this.nodes.has(t)) {
+                    throw new GraphError(
+                        `router on ${JSON.stringify(edge.from)} declares unknown target ${JSON.stringify(t)}`,
+                    );
+                }
             }
         }
 
