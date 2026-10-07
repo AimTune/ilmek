@@ -69,7 +69,8 @@ export class McpToolbox {
         this.prefix = options.prefix ?? `${options.name}__`;
         const allow = options.allow ? new Set(options.allow) : null;
         const map = new Map<string, McpTool>();
-        for (const t of tools) {
+        // A server that answers tools/list without a list advertises nothing.
+        for (const t of tools ?? []) {
             if (allow && !allow.has(t.name)) continue;
             const exposed = `${this.prefix}${t.name}`;
             const tool: { -readonly [K in keyof McpTool]: McpTool[K] } = { name: exposed, remoteName: t.name, inputSchema: t.inputSchema ?? { type: "object" } };
@@ -108,7 +109,7 @@ export class McpToolbox {
      * `ctx.step`, keyed `mcp:<server>:<tool>` unless `opts.key` says otherwise,
      * and the normalized result is what the journal keeps.
      */
-    call(ctx: Context<any>, name: string, args: Record<string, unknown> = {}, opts: CallOptions = {}): Promise<McpToolResult> {
+    async call(ctx: Context<any>, name: string, args: Record<string, unknown> = {}, opts: CallOptions = {}): Promise<McpToolResult> {
         const tool = this.byName.get(name);
         if (!tool) throw new Error(`MCP toolbox ${JSON.stringify(this.name)} has no tool ${JSON.stringify(name)}`);
         return ctx.step(opts.key ?? `mcp:${this.name}:${tool.remoteName}`, () => this.invoke(name, args));
@@ -129,7 +130,7 @@ export class McpToolbox {
     async fetchResource(uri: string): Promise<string> {
         if (!this.client.readResource) throw new Error(`MCP server ${JSON.stringify(this.name)} has no resources`);
         const { contents } = await this.client.readResource({ uri });
-        return contents.map((c) => c.text ?? "").filter((t) => t.length > 0).join("\n");
+        return (contents ?? []).map((c) => (typeof c?.text === "string" ? c.text : "")).filter((t) => t.length > 0).join("\n");
     }
 
     /** The server's prompts, or `[]` when it advertises none. */

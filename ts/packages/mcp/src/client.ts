@@ -101,7 +101,7 @@ export interface McpToolResult {
 
 /** Normalize a raw `tools/call` result into {@link McpToolResult}. Pure. */
 export function normalizeToolResult(raw: McpCallToolResult): McpToolResult {
-    const content = raw.content ?? [];
+    const content = (raw.content ?? []).filter((b) => typeof b === "object" && b !== null);
     const texts: string[] = [];
     for (const block of content) {
         if (block.type === "text" && typeof block.text === "string") texts.push(block.text);
@@ -118,11 +118,13 @@ export function normalizeToolResult(raw: McpCallToolResult): McpToolResult {
 
 /** The text of a prompt's messages, one line per message as `role: text`. */
 export function promptText(result: McpGetPromptResult): string {
-    return result.messages
+    // Tolerant of a sloppy server: a missing message list or a message with no
+    // content renders as nothing rather than throwing from deep in here.
+    return (result.messages ?? [])
         .map((m) => {
-            const blocks = Array.isArray(m.content) ? m.content : [m.content as McpContent];
+            const blocks = Array.isArray(m?.content) ? m.content : [m?.content as McpContent];
             const text = blocks
-                .filter((b) => b.type === "text" && typeof b.text === "string")
+                .filter((b) => b?.type === "text" && typeof b.text === "string")
                 .map((b) => b.text as string)
                 .join("\n");
             return text;

@@ -30,7 +30,7 @@ export function mcpNodes(toolboxes: Readonly<Record<string, McpToolbox>>): NodeR
     const toolbox = (config: Record<string, unknown>, type: string): McpToolbox => {
         const server = config.server;
         if (typeof server !== "string" || server.length === 0) throw new GraphError(`an "${type}" node needs config.server`);
-        const tb = toolboxes[server];
+        const tb = Object.hasOwn(toolboxes, server) ? toolboxes[server] : undefined;
         if (!tb) {
             throw new GraphError(`"${type}" node references MCP server ${JSON.stringify(server)}; known: ${JSON.stringify(Object.keys(toolboxes))}`);
         }
