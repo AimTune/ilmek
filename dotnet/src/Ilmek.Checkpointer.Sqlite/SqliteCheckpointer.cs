@@ -284,9 +284,17 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
             root.GetProperty("Ts").GetInt64());
     }
 
-    /// <summary>Closes the connection when this instance opened it.</summary>
+    /// <summary>
+    /// Closes the connection when this instance opened it — and really closes it.
+    /// Microsoft.Data.Sqlite pools connections, so a plain Dispose only parks the
+    /// native handle in the pool and the database file stays open (on Windows it
+    /// cannot be deleted, moved or replaced until the process exits). Clearing the
+    /// pool releases the file, which is what "closed" means for a file store.
+    /// </summary>
     public void Dispose()
     {
-        if (_ownsConnection) _db.Dispose();
+        if (!_ownsConnection) return;
+        _db.Dispose();
+        SqliteConnection.ClearPool(_db);
     }
 }
