@@ -107,7 +107,7 @@ public static class FrontmatterReader
                 throw new SkillParseException("bad_indentation", $"unexpected indentation at frontmatter line {c.I + 2}");
 
             var content = next.Value.Line[indent..].TrimEnd();
-            if (content.StartsWith("- ") || content == "-")
+            if (content.StartsWith("- ", StringComparison.Ordinal) || content == "-")
                 throw new SkillParseException("bad_structure", $"expected a `key: value` line, found a sequence item at frontmatter line {c.I + 2}");
 
             var m = KeyLine.Match(content);
@@ -131,7 +131,7 @@ public static class FrontmatterReader
             if (next is not null && next.Value.Indent > indent)
             {
                 var content = next.Value.Line[next.Value.Indent..];
-                return content.StartsWith("- ") || content == "-"
+                return content.StartsWith("- ", StringComparison.Ordinal) || content == "-"
                     ? ParseSequence(c, next.Value.Indent)
                     : ParseMapping(c, next.Value.Indent);
             }
@@ -162,7 +162,7 @@ public static class FrontmatterReader
                 throw new SkillParseException("bad_indentation", $"unexpected indentation at frontmatter line {c.I + 2}");
 
             var content = next.Value.Line[indent..].TrimEnd();
-            if (!(content.StartsWith("- ") || content == "-")) break; // back to the enclosing mapping
+            if (!(content.StartsWith("- ", StringComparison.Ordinal) || content == "-")) break; // back to the enclosing mapping
             var item = content == "-" ? "" : content[2..].Trim();
             c.I++;
             if (item.Length == 0)

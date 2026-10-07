@@ -339,6 +339,36 @@ public class A2aErrorPathTests
 
     // ── node registry ───────────────────────────────────────────────────────
 
+    [Fact(DisplayName = "a2a_call renders a non-string textFrom channel culture-invariantly (1.5, not 1,5 under tr-TR)")]
+    public async Task TextFromIsCultureInvariant()
+    {
+        var sent = new List<string>();
+        var agent = await Connect(new Scripted(req =>
+        {
+            var message = (IReadOnlyDictionary<string, object?>)((IReadOnlyDictionary<string, object?>)req["params"]!)["message"]!;
+            sent.Add(A2aParts.TextOf(message["parts"]));
+            return Rpc(Task_("t", "completed"));
+        }));
+        var g = Spec.FromSpec(new GraphSpec
+        {
+            Channels = new Dictionary<string, SpecChannel> { ["amount"] = new(), ["result"] = new() },
+            Nodes = [new SpecNode("call", "a2a_call", new Dictionary<string, object?> { ["agent"] = "helper", ["textFrom"] = "amount" })],
+            Edges = [new SpecEdge(Graph.Start, "call")],
+        }, A2aNodes.Registry(new Dictionary<string, A2aAgent> { ["helper"] = agent })).Compile();
+
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("tr-TR");
+        try
+        {
+            await g.RunAsync(new Dictionary<string, object?> { ["amount"] = 1.5 });
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
+        Assert.Equal(new[] { "1.5" }, sent);
+    }
+
     [Fact(DisplayName = "a2a_call refuses a missing agent, an unknown agent, no text source and a bad channel")]
     public async Task NodeRegistryRefusals()
     {

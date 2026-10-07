@@ -84,7 +84,7 @@ public sealed class SkillCatalog : ISkillSource
             throw new SkillParseException("outside_skill", $"resource paths are relative to the skill folder: {path}");
         var full = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, path));
         var rel = System.IO.Path.GetRelativePath(root, full);
-        if (rel == "." || rel.Length == 0 || rel.StartsWith("..") || System.IO.Path.IsPathRooted(rel))
+        if (rel == "." || rel.Length == 0 || rel.StartsWith("..", StringComparison.Ordinal) || System.IO.Path.IsPathRooted(rel))
             throw new SkillParseException("outside_skill", $"resource \"{path}\" is outside skill \"{name}\"");
 
         // The lexical check above cannot see links: a symlink or junction inside

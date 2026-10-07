@@ -54,8 +54,8 @@ public sealed record Checkpoint(
 
     public static string GenerateId()
     {
-        var micros = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000).ToString("D20");
-        var tiebreak = (Interlocked.Increment(ref _seq) % 1_000_000).ToString("D6");
+        var micros = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000).ToString("D20", System.Globalization.CultureInfo.InvariantCulture);
+        var tiebreak = (Interlocked.Increment(ref _seq) % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
         var rand = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
         return $"ckpt-{micros}-{tiebreak}-{rand}";
     }

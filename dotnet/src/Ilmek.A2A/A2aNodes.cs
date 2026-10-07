@@ -35,7 +35,7 @@ public static class A2aNodes
             var textOnly = config.GetValueOrDefault("text_only") is true || config.GetValueOrDefault("textOnly") is true;
             return async (state, ctx) =>
             {
-                var text = textFrom is not null ? state[textFrom]?.ToString() ?? "" : fixedText!;
+                var text = textFrom is not null ? Convert.ToString(state[textFrom], System.Globalization.CultureInfo.InvariantCulture) ?? "" : fixedText!;
                 var options = new SendOptions
                 {
                     ContextId = contextFrom is not null ? state[contextFrom] as string : null,
