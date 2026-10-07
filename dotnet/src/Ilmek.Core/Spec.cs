@@ -119,13 +119,24 @@ public static class Spec
 
     private static NodeFn BuildNode(SpecNode node, IReadOnlyDictionary<string, NodeBuilder> registry)
     {
+        // A document deserialized from JSON can carry a null type despite the
+        // record's annotation; say so instead of a raw ArgumentNullException.
+        if (node.Type is null)
+        {
+            throw new GraphException(
+                $"node \"{node.Id}\" has no \"type\" — a stored graph resolves behaviour through the " +
+                "registry, so every node needs one.");
+        }
+
         if (!registry.TryGetValue(node.Type, out var build))
         {
             throw new GraphException(
                 $"node \"{node.Id}\" has type \"{node.Type}\", which is not in the registry. " +
                 $"Known types: [{string.Join(", ", registry.Keys)}]");
         }
-        return build(node.Config ?? new Dictionary<string, object?>());
+        return build(node.Config ?? new Dictionary<string, object?>())
+            ?? throw new GraphException(
+                $"registry entry \"{node.Type}\" returned null; expected a node function (state, ctx).");
     }
 
     private static Channel ChannelFromSpec(string reducer, string name) => reducer switch
@@ -153,25 +164,47 @@ public static class Spec
 
     private static Func<object?, bool> CompileOp(SpecPredicate p)
     {
-        if (p.Eq is not null) return a => Equals(a, p.Eq);
-        if (p.Neq is not null) return a => !Equals(a, p.Neq);
-        if (p.In is not null) return a => p.In.Any(v => Equals(a, v));
-        if (p.Gt is not null) return a => a is IConvertible && Convert.ToDouble(a) > p.Gt.Value;
-        if (p.Lt is not null) return a => a is IConvertible && Convert.ToDouble(a) < p.Lt.Value;
+        if (p.Eq is not null) return a => SpecEquals(a, p.Eq);
+        if (p.Neq is not null) return a => !SpecEquals(a, p.Neq);
+        if (p.In is not null) return a => p.In.Any(v => SpecEquals(a, v));
+        // Like the TS reference (`typeof a === "number"`): only a number compares.
+        // A string or bool channel is simply not greater — never parsed, never a
+        // FormatException escaping a guard and killing the run.
+        if (p.Gt is not null) return a => AsNumber(a) is { } n && n > p.Gt.Value;
+        if (p.Lt is not null) return a => AsNumber(a) is { } n && n < p.Lt.Value;
         if (p.Truthy is not null) return a => IsTruthy(a) == p.Truthy.Value;
 
         throw new GraphException(
             $"predicate on channel \"{p.Channel}\" has no known operator. Supported: Eq, Neq, In, Gt, Lt, Truthy.");
     }
 
+    /// <summary>
+    /// A JSON document has one number type, so <c>3</c>, <c>3L</c> and <c>3.0</c>
+    /// are the same value to a stored predicate — exactly as in the TS reference,
+    /// where <c>3 === 3.0</c>. Plain <c>Equals(3L, 3)</c> is false, which made a
+    /// predicate written with an int never match a channel holding a long (the
+    /// shape every value has after a SQLite round-trip).
+    /// </summary>
+    private static bool SpecEquals(object? actual, object? expected) =>
+        AsNumber(actual) is { } a && AsNumber(expected) is { } e ? a == e : Equals(actual, expected);
+
+    private static double? AsNumber(object? value) => value switch
+    {
+        sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal =>
+            Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture),
+        _ => null,
+    };
+
     // Mirrors the TypeScript reference's notion of emptiness so the same document
-    // routes the same way in both languages.
+    // routes the same way in both languages: null, false, "", 0, NaN, an empty
+    // list and an empty map are falsy.
     private static bool IsTruthy(object? value) => value switch
     {
         null => false,
         bool b => b,
         string s => s.Length > 0,
         System.Collections.ICollection c => c.Count > 0,
+        _ when AsNumber(value) is { } n => n != 0 && !double.IsNaN(n),
         _ => true,
     };
 }
