@@ -73,13 +73,26 @@ public sealed class SkillCatalog : ISkillSource
         if (skill.Path is null)
             throw new SkillParseException("no_resources", $"skill \"{name}\" is inline and has no files on disk");
 
+        ArgumentNullException.ThrowIfNull(path);
+        // A NUL can only be an attack or a bug, and the filesystem APIs would
+        // throw a raw ArgumentException on it — refuse it as what it is.
+        if (path.Contains('\0'))
+            throw new SkillParseException("outside_skill", $"resource path for skill \"{name}\" contains a NUL character");
+
         var root = System.IO.Path.GetFullPath(skill.Path);
         if (System.IO.Path.IsPathRooted(path) || path.StartsWith('/') || path.StartsWith('\\'))
             throw new SkillParseException("outside_skill", $"resource paths are relative to the skill folder: {path}");
         var full = System.IO.Path.GetFullPath(System.IO.Path.Combine(root, path));
         var rel = System.IO.Path.GetRelativePath(root, full);
-        if (rel == "." || rel.Length == 0 || rel.StartsWith("..") || System.IO.Path.IsPathRooted(rel))
+        if (rel == "." || rel.Length == 0 || rel.StartsWith("..", StringComparison.Ordinal) || System.IO.Path.IsPathRooted(rel))
             throw new SkillParseException("outside_skill", $"resource \"{path}\" is outside skill \"{name}\"");
-        return await File.ReadAllTextAsync(full, ct).ConfigureAwait(false);
+
+        // The lexical check above cannot see links: a symlink or junction inside
+        // the folder can point anywhere. Resolve both sides and compare again.
+        var realRoot = RealPath.Resolve(root);
+        var realFull = RealPath.Resolve(full);
+        if (!RealPath.IsStrictlyInside(realRoot, realFull))
+            throw new SkillParseException("outside_skill", $"resource \"{path}\" links outside skill \"{name}\"");
+        return await File.ReadAllTextAsync(realFull, ct).ConfigureAwait(false);
     }
 }

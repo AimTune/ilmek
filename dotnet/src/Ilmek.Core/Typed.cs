@@ -114,13 +114,17 @@ internal static class TypedSchema
     public static Channel ChannelFor(PropertyInfo prop) =>
         prop.GetCustomAttribute<ChannelAttribute>()?.Build() ?? Channels.LastWrite();
 
-    /// <summary>A channel's name is its property's name — one obvious mapping, no attributes.</summary>
+    /// <summary>
+    /// A channel's name is its property's name — one obvious mapping, no attributes.
+    /// Only a DIRECT property of the state counts: <c>s =&gt; s.Log.Count</c> must not
+    /// resolve to "Count" and silently address a different channel of that name.
+    /// </summary>
     public static string NameOf<TState, TProp>(Expression<Func<TState, TProp>> selector) =>
         selector.Body switch
         {
-            MemberExpression m => m.Member.Name,
+            MemberExpression { Expression: ParameterExpression } m => m.Member.Name,
             // A value-typed property under a Func<,object> selector arrives boxed.
-            UnaryExpression { Operand: MemberExpression m } => m.Member.Name,
+            UnaryExpression { Operand: MemberExpression { Expression: ParameterExpression } m } => m.Member.Name,
             _ => throw new GraphException(
                 $"expected a property selector like s => s.Log, got {selector.Body}"),
         };

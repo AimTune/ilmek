@@ -166,7 +166,10 @@ internal static class Routing
         foreach (var edge in g.Edges)
         {
             if (edge.From != from) continue;
-            if (edge.Router is not null) raw.AddRange(edge.Router(state, ctx));
+            // A router that returns null is a routing bug like returning a null
+            // target: let Resolve reject it with a GraphException (as TS does)
+            // instead of AddRange throwing a bare ArgumentNullException.
+            if (edge.Router is not null) raw.AddRange(edge.Router(state, ctx) ?? new object[] { null! });
             else if (edge.To is not null && (edge.When is null || edge.When(state, ctx))) raw.Add(edge.To);
         }
         return Resolve(g, from, raw);

@@ -15,7 +15,7 @@ public sealed class SqliteCheckpointerTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("ilmek-sqlite-").FullName;
 
-    public void Dispose() => Directory.Delete(_dir, recursive: true);
+    public void Dispose() => TempDir.Delete(_dir);
 
     private string DbPath(string name) => Path.Combine(_dir, $"{name}.db");
 
@@ -42,10 +42,27 @@ public sealed class SqliteCheckpointerTests : IDisposable
         Assert.Null(await cp.GetAsync("nobody"));
     }
 
+    [Fact(DisplayName = "after Dispose the database file is released and can be deleted")]
+    public async Task DisposeReleasesTheFile()
+    {
+        // Microsoft.Data.Sqlite pools connections; a Dispose that only returned
+        // the handle to the pool would keep the file open, and on Windows a
+        // deploy could not replace or remove it until the process exited.
+        var path = DbPath("released");
+        using (var cp = SqliteCheckpointer.Open(path))
+        {
+            var g = CheckoutGraph(() => { }, () => { });
+            await g.RunAsync(null, new RunOptions { ThreadId = "t-release", Checkpointer = cp });
+        }
+
+        File.Delete(path); // throws IOException if anything still holds the file
+        Assert.False(File.Exists(path));
+    }
+
     [Fact(DisplayName = "using it before Migrate() says so instead of failing on missing tables")]
     public void UnmigratedIsExplicit()
     {
-        var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=:memory:");
         connection.Open();
         var cp = new SqliteCheckpointer(connection);
 
@@ -197,7 +214,7 @@ public sealed class SqliteCheckpointerTests : IDisposable
     [Fact(DisplayName = "a custom TablePrefix isolates two apps in one file")]
     public async Task TablePrefixIsolates()
     {
-        var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath("shared")}");
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath("shared")}");
         connection.Open();
 
         var app1 = new SqliteCheckpointer(connection, new SqliteCheckpointerOptions { TablePrefix = "app1" });
@@ -216,8 +233,6 @@ public sealed class SqliteCheckpointerTests : IDisposable
 
         Assert.NotEmpty(await app1.ListAsync("same-id"));
         Assert.Empty(await app2.ListAsync("same-id")); // app2's tables are untouched
-
-        connection.Dispose();
     }
 
     [Fact(DisplayName = "a fan-out send payload survives the restart")]

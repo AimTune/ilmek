@@ -54,11 +54,27 @@ public sealed record Checkpoint(
 
     public static string GenerateId()
     {
-        var micros = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000).ToString("D20");
-        var tiebreak = (Interlocked.Increment(ref _seq) % 1_000_000).ToString("D6");
+        var micros = (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000).ToString("D20", System.Globalization.CultureInfo.InvariantCulture);
+        var tiebreak = (Interlocked.Increment(ref _seq) % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
         var rand = Convert.ToHexString(RandomNumberGenerator.GetBytes(5)).ToLowerInvariant();
         return $"ckpt-{micros}-{tiebreak}-{rand}";
     }
+
+    /// <summary>
+    /// The task-id prefixes that cover exactly one thread's journals.
+    ///
+    /// <para>The engine names a task <c>{threadId}:{planId ?? "root"}:{taskKey}</c>,
+    /// and every plan id is a generated checkpoint id (<c>ckpt-…</c>), so these two
+    /// prefixes match all of the thread's journals and none of another thread's —
+    /// unless that thread's own id contains <c>":root:"</c> or <c>":ckpt-"</c>.</para>
+    ///
+    /// <para>A checkpointer's <see cref="ICheckpointer.DeleteThreadAsync"/> must
+    /// drop these too: a fresh run on a reused thread id plans from "root" again,
+    /// so a leftover journal would replay the deleted conversation's steps and
+    /// pauses into the new one.</para>
+    /// </summary>
+    public static IReadOnlyList<string> ThreadJournalPrefixes(string threadId) =>
+        new[] { $"{threadId}:root:", $"{threadId}:ckpt-" };
 }
 
 /// <summary>
@@ -163,7 +179,15 @@ public sealed class InMemoryCheckpointer : ICheckpointer
 
     public Task DeleteThreadAsync(string threadId, CancellationToken ct = default)
     {
-        lock (_gate) _checkpoints.Remove(threadId);
+        var prefixes = Checkpoint.ThreadJournalPrefixes(threadId);
+        lock (_gate)
+        {
+            _checkpoints.Remove(threadId);
+            // The thread's journals go with it (see Checkpoint.ThreadJournalPrefixes).
+            foreach (var taskId in _journals.Keys
+                         .Where(k => prefixes.Any(p => k.StartsWith(p, StringComparison.Ordinal))).ToList())
+                _journals.Remove(taskId);
+        }
         return Task.CompletedTask;
     }
 }

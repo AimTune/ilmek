@@ -66,8 +66,35 @@ public static class SkillLoader
     /// <summary>Every file under <paramref name="dir"/> except SKILL.md and dot-entries, as sorted <c>/</c>-relative paths.</summary>
     private static List<string> ListResources(string dir)
     {
+        // Links (symlinks, junctions) are followed only when their real target is
+        // strictly inside the skill: one pointing out would advertise a resource
+        // ReadResourceAsync refuses, and one pointing at an ancestor would make the
+        // walk recurse until the path is too long. Each real directory is walked
+        // once, real paths first — links are deferred until every plain entry has
+        // been seen, so "references/a.md" wins over "alias/a.md". Dangling links
+        // are skipped. Mirrors the TS walk.
         var result = new List<string>();
+        var realRoot = RealPath.Resolve(dir);
+        var visited = new HashSet<string>(
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        { realRoot };
+        var links = new Queue<FileSystemInfo>();
+
         Walk(dir);
+        while (links.Count > 0)
+        {
+            var link = links.Dequeue();
+            var real = RealPath.Resolve(link.FullName);
+            if (!RealPath.IsStrictlyInside(realRoot, real)) continue;
+            if (Directory.Exists(real))
+            {
+                if (visited.Add(real)) Walk(link.FullName);
+            }
+            else if (File.Exists(real) && !(link.Name == SkillFile && System.IO.Path.GetDirectoryName(link.FullName) == dir))
+            {
+                Add(link);
+            }
+        }
         result.Sort(StringComparer.Ordinal);
         return result;
 
@@ -76,14 +103,22 @@ public static class SkillLoader
             foreach (var entry in new DirectoryInfo(current).EnumerateFileSystemInfos())
             {
                 if (entry.Name.StartsWith('.')) continue;
-                if (entry is DirectoryInfo || (entry.Attributes & FileAttributes.Directory) != 0)
+                if (entry.LinkTarget is not null)
                 {
-                    Walk(entry.FullName);
+                    links.Enqueue(entry);
+                    continue;
+                }
+                if (entry is DirectoryInfo)
+                {
+                    if (visited.Add(RealPath.Resolve(entry.FullName))) Walk(entry.FullName);
                     continue;
                 }
                 if (current == dir && entry.Name == SkillFile) continue;
-                result.Add(System.IO.Path.GetRelativePath(dir, entry.FullName).Replace('\\', '/'));
+                Add(entry);
             }
         }
+
+        void Add(FileSystemInfo entry) =>
+            result.Add(System.IO.Path.GetRelativePath(dir, entry.FullName).Replace('\\', '/'));
     }
 }

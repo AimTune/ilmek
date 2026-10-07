@@ -534,24 +534,93 @@ internal static class Engine
     /// arrive keyed by the thread-scoped id; the journal is addressed by the
     /// task-scoped key. Conflating the two silently drops an answer whenever two
     /// nodes pause in the same superstep.
+    ///
+    /// <para><b>All or nothing.</b> Every answer is validated before any journal
+    /// is written. Writing them one at a time would let a resume that answers
+    /// only some of several pauses persist the first answers and then throw —
+    /// leaving those entries answered while the checkpoint still lists them as
+    /// pending, so every later resume failed with <c>already_answered</c>.</para>
+    ///
+    /// <para><b>Retry-safe.</b> A resume whose superstep does not commit (the
+    /// node throws, the run is cancelled) leaves its answers journaled while the
+    /// checkpoint still lists the pauses. Resuming again with the <i>same</i>
+    /// answer is that resume retried, so it is accepted as a no-op; a
+    /// <i>different</i> answer is refused rather than silently ignored.</para>
+    /// <para>Ids in <paramref name="answers"/> that are not pending are ignored,
+    /// as in the TypeScript reference.</para>
     /// </summary>
     private static async Task AnswerPendingAsync(
         ICheckpointer checkpointer, IReadOnlyList<Pending> pending,
         IReadOnlyDictionary<string, object?> answers, CancellationToken ct)
     {
+        // 1. Every pause needs an answer — checked before anything is loaded or written.
         foreach (var p in pending)
         {
-            if (!answers.TryGetValue(p.Id, out var answer))
+            if (!answers.ContainsKey(p.Id))
             {
                 throw new ResumeException(
                     $"no answer supplied for pending interrupt \"{p.Id}\" (node \"{p.Node}\"). " +
                     $"Expected ids: [{string.Join(", ", pending.Select(x => x.Id))}]");
             }
+        }
 
-            var journal = await checkpointer.GetJournalAsync(p.TaskId, ct).ConfigureAwait(false);
+        // 2. Apply every answer in memory, one journal per task.
+        var journals = new Dictionary<string, Journal>();
+        foreach (var p in pending)
+        {
+            if (!journals.TryGetValue(p.TaskId, out var journal))
+            {
+                journal = await checkpointer.GetJournalAsync(p.TaskId, ct).ConfigureAwait(false);
+                journals[p.TaskId] = journal;
+            }
+
+            var answer = answers[p.Id];
+            if (journal.Fetch(p.Key) is { Done: true } recorded)
+            {
+                if (AnswersEqual(recorded.Value, answer)) continue;
+                throw new ResumeException(
+                    $"interrupt \"{p.Id}\" was already answered with {Describe(recorded.Value)} by an earlier " +
+                    "resume whose superstep did not complete (the node failed or the run was cancelled). " +
+                    "An answer cannot be changed once given: resume again with the same answer.");
+            }
+
             var (ok, reason) = journal.Answer(p.Key, answer);
             if (!ok) throw new ResumeException($"cannot answer \"{p.Key}\" on task \"{p.TaskId}\": {reason}");
-            await checkpointer.PutJournalAsync(p.TaskId, journal, ct).ConfigureAwait(false);
+        }
+
+        // 3. Only now persist.
+        foreach (var (taskId, journal) in journals)
+            await checkpointer.PutJournalAsync(taskId, journal, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Compare answers in JSON space: a journal that came back from a durable
+    /// checkpointer holds the decoded JSON shape (dictionaries, lists, longs), not
+    /// the CLR object the caller first answered with.
+    /// </summary>
+    private static bool AnswersEqual(object? recorded, object? incoming)
+    {
+        if (Equals(recorded, incoming)) return true;
+        try
+        {
+            return System.Text.Json.Nodes.JsonNode.DeepEquals(
+                System.Text.Json.JsonSerializer.SerializeToNode(recorded),
+                System.Text.Json.JsonSerializer.SerializeToNode(incoming));
+        }
+        catch (Exception ex) when (ex is NotSupportedException or System.Text.Json.JsonException
+                                       or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static string Describe(object? value)
+    {
+        try { return System.Text.Json.JsonSerializer.Serialize(value); }
+        catch (Exception ex) when (ex is NotSupportedException or System.Text.Json.JsonException
+                                       or InvalidOperationException)
+        {
+            return value?.ToString() ?? "null";
         }
     }
 

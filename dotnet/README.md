@@ -36,10 +36,23 @@ engine. Postgres (Npgsql) is the next sibling.
 
 ```bash
 dotnet build Ilmek.sln
-dotnet test Ilmek.sln                                     # 28 tests (19 core + 9 sqlite)
+dotnet test Ilmek.sln                                     # every suite: core, sqlite, skills, mcp, a2a
 dotnet run --project examples/Ilmek.Examples              # checkout: durable HITL
 dotnet run --project examples/Ilmek.Examples -- mapreduce # send + retry + command
 ```
+
+Coverage: every test project references `coverlet.collector`, so
+
+```bash
+dotnet test Ilmek.sln --collect:"XPlat Code Coverage" --results-directory ./coverage
+```
+
+writes one `coverage.cobertura.xml` per test project (line and branch rates per
+assembly, readable by any Cobertura viewer or ReportGenerator).
+
+The checkpointer contract (`test/Ilmek.Core.Tests/CheckpointerContract.cs`) is
+compiled into both the core and the SQLite test projects, so every backend passes
+the same list of MODEL.md §7 claims — a new backend's tests start by subclassing it.
 
 ## Durable checkpointing
 

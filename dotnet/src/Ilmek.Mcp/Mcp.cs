@@ -125,7 +125,9 @@ public static class McpResults
     public static McpToolResult Normalize(McpCallToolResult raw)
     {
         var texts = new List<string>();
-        foreach (var block in raw.Content)
+        // Null content, or null entries in it, are noise from a sloppy server: skip them.
+        var content = (raw.Content ?? []).Where(b => b is not null).ToList();
+        foreach (var block in content)
         {
             var type = block.GetValueOrDefault("type") as string;
             if (type == "text" && block.GetValueOrDefault("text") is string t) texts.Add(t);
@@ -136,7 +138,7 @@ public static class McpResults
             Text = string.Join("\n", texts),
             Structured = raw.StructuredContent,
             IsError = raw.IsError,
-            Content = raw.Content,
+            Content = content,
         };
     }
 
@@ -144,10 +146,11 @@ public static class McpResults
     public static string PromptText(McpGetPromptResult result)
     {
         var parts = new List<string>();
-        foreach (var m in result.Messages)
+        foreach (var m in result.Messages ?? [])
         {
-            var text = string.Join("\n", m.Content
-                .Where(b => b.GetValueOrDefault("type") as string == "text" && b.GetValueOrDefault("text") is string)
+            if (m is null) continue;
+            var text = string.Join("\n", (m.Content ?? [])
+                .Where(b => b is not null && b.GetValueOrDefault("type") as string == "text" && b.GetValueOrDefault("text") is string)
                 .Select(b => (string)b["text"]!));
             if (text.Length > 0) parts.Add(text);
         }

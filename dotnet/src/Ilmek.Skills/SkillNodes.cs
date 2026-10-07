@@ -42,7 +42,7 @@ public static class SkillNodes
         ["skills"] = config =>
         {
             var to = ChannelOf(config);
-            var intro = config.TryGetValue("intro", out var i) ? i?.ToString() : SkillPrompt.DefaultIntro;
+            var intro = config.TryGetValue("intro", out var i) ? Convert.ToString(i, System.Globalization.CultureInfo.InvariantCulture) : SkillPrompt.DefaultIntro;
             return (_, _) => new ValueTask<object?>(new Dictionary<string, object?> { [to] = SkillPrompt.Render(source.List(), intro) });
         },
     };
