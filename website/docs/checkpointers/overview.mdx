@@ -84,8 +84,8 @@ var g = Graph.Create<CheckoutState>("checkout")
 var checkpointer = new InMemoryCheckpointer();
 var opts = new RunOptions { ThreadId = "conv-42", Checkpointer = checkpointer };
 var input = Update.For<CheckoutState>().Set(s => s.Cart, new List<string> { "coffee", "mug" });
-await IlmekRuntime.RunAsync(g, input, opts);      // persists as it goes
-await IlmekRuntime.ResumeAsync(g, "yes", opts);   // picks up from the last checkpoint
+await g.RunAsync(input, opts);      // persists as it goes
+await g.ResumeAsync("yes", opts);   // picks up from the last checkpoint
 ```
 
 </TabItem>
@@ -93,24 +93,47 @@ await IlmekRuntime.ResumeAsync(g, "yes", opts);   // picks up from the last chec
 
 ## The port
 
-```
-put(threadId, checkpoint)            -> void
-get(threadId, checkpointId | null)   -> checkpoint | null    // null = latest
-list(threadId, opts)                 -> checkpoint[]          // newest first
-putJournal(taskId, entries)          -> void
-getJournal(taskId)                   -> entry[]
-deleteThread(threadId)               -> void
+The TypeScript `Checkpointer` interface — .NET's `ICheckpointer` has the same
+seven methods, each `…Async` with a trailing `CancellationToken`:
+
+```text
+put(checkpoint)                        -> void
+get(threadId, checkpointId?)           -> Checkpoint | null    // omitted / null = latest
+list(threadId, { limit? })             -> Checkpoint[]         // newest first
+putJournal(taskId, journal)            -> void
+getJournal(taskId)                     -> Journal              // empty when none is stored
+dropJournal(taskId)                    -> void
+deleteThread(threadId)                 -> void
 ```
 
-A **checkpoint** records `{ id, parentId, threadId, channels, next, pending, step, ts }`.
-Because every checkpoint names its parent, a thread is a **tree, not a line**:
-resuming from a non-latest checkpoint forks a branch (time travel / what-if).
-Implementations must not assume a single chain.
+A **checkpoint** records `{ id, parentId, planId, threadId, channels, next,
+pending, step, ts }`. Ids sort lexically in creation order, so "latest" is the
+greatest id. Because every checkpoint names its parent, a thread is a **tree, not
+a line**: resuming from a non-latest checkpoint (`checkpointId` in the run
+options) forks a branch (time travel / what-if). Implementations must not assume
+a single chain.
 
-`deleteThread` forgets the thread completely — its checkpoints **and** the
-journals of its tasks (every task id starting with `threadJournalPrefixes(threadId)`).
-A fresh run on a reused thread id therefore starts clean instead of replaying the
-deleted conversation's steps.
+Journals are stored per task, under `<threadId>:<planId | "root">:<taskKey>` (see
+[the journal's lifetime](/model/journal#lifetime)); the engine drops them with
+`dropJournal` as each superstep commits. `deleteThread` forgets the thread
+completely — its checkpoints **and** the journals of its tasks: every task id
+starting with one of `threadJournalPrefixes(threadId)` (`Checkpoint.ThreadJournalPrefixes`
+in .NET), which are `<threadId>:root:` and `<threadId>:ckpt-`. A fresh run on a
+reused thread id therefore starts clean instead of replaying the deleted
+conversation's steps. (A thread id that itself extends another one with `:root:`
+or `:ckpt-` would match its prefixes — don't build thread ids that way.)
+
+The port has no compare-and-swap, so it does not arbitrate two processes resuming
+the same thread at once — see [known limitations](/model/interrupts#known-limitations).
+
+### Writing a backend
+
+Implement the interface above. Both implementations ship the checkpointer
+contract as a shared test suite — `ts/packages/checkpointers/*/test/contract.ts`
+in TypeScript, `dotnet/test/Ilmek.Core.Tests/CheckpointerContract.cs` in .NET —
+and the durable backends pass it; run a new backend against the same suite.
+SQL backends should match the journal prefixes with `substr`/`starts-with`
+rather than `LIKE`, since a thread id may contain `%` or `_`.
 
 :::note ilmek checkpoints are ilmek's own
 They hold engine state — channels, journals, and pending pauses — not a host's
@@ -121,9 +144,10 @@ transcript or conversation store, which a host keeps independently.
 
 | Package | Backend | Use when | Status |
 |---|---|---|---|
-| built into `@ilmek/core` | `InMemoryCheckpointer` | tests, demos, single run | TS ✅ · .NET ✅ |
-| [`@ilmek/checkpoint-sqlite`](/checkpointers/sqlite) | one SQLite file | single-process durability | TS ✅ · .NET ✅ |
+| built into `@ilmek/core` / `Ilmek.Core` | `InMemoryCheckpointer` | tests, demos, single run | TS ✅ · .NET ✅ |
+| [`@ilmek/checkpoint-sqlite`](/checkpointers/sqlite) / `Ilmek.Checkpointer.Sqlite` | one SQLite file | single-process durability | TS ✅ · .NET ✅ |
 | [`@ilmek/checkpoint-postgres`](/checkpointers/postgres) | Postgres | threads shared across processes | TS ✅ · .NET ⬜ |
 
 `InMemoryCheckpointer` is enough to feel the model. Swap in SQLite or Postgres
-and nothing else in your code changes.
+and the graph code stays the same — in .NET, as long as step results are
+[JSON-shaped](/model/journal#serializable-values).
