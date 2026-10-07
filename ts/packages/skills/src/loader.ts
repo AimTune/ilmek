@@ -1,8 +1,8 @@
 // Loading skills from disk: one folder → one Skill, a root → every skill folder
 // under it. The only place in the package that touches the filesystem.
 
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { SkillParseError } from "./frontmatter.ts";
 import { parseSkill, type Skill } from "./skill.ts";
@@ -72,15 +72,39 @@ export async function discoverSkills(roots: string | readonly string[], opts: Lo
     return [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-/** Every file under `dir` except SKILL.md and dot-entries, as sorted `/`-relative paths. */
+/**
+ * Every file under `dir` except SKILL.md and dot-entries, as sorted `/`-relative
+ * paths. Links are followed only when their real target stays strictly inside
+ * the skill folder — a link out would advertise a resource `readResource`
+ * refuses — and each real directory is walked once, so a link back to the
+ * folder or an ancestor cannot recurse forever.
+ */
 async function listResources(dir: string): Promise<string[]> {
     const out: string[] = [];
+    const realRoot = await realpath(dir);
+    const seen = new Set<string>([realRoot]);
     const walk = async (current: string): Promise<void> => {
-        for (const entry of await readdir(current, { withFileTypes: true })) {
+        // Real entries before links, so a directory reachable both ways is
+        // listed under its real path.
+        const entries = (await readdir(current, { withFileTypes: true })).sort(
+            (x, y) => Number(x.isSymbolicLink()) - Number(y.isSymbolicLink()),
+        );
+        for (const entry of entries) {
             if (entry.name.startsWith(".")) continue;
             const full = join(current, entry.name);
-            const isDir = entry.isDirectory() || (entry.isSymbolicLink() && (await isDirectory(full)));
-            if (isDir) {
+            if (entry.isSymbolicLink()) {
+                const target = await realpath(full).catch(() => null);
+                if (target === null || !isStrictlyInside(realRoot, target)) continue;
+                if (await isDirectory(full)) {
+                    if (seen.has(target)) continue;
+                    seen.add(target);
+                    await walk(full);
+                    continue;
+                }
+            } else if (entry.isDirectory()) {
+                const real = await realpath(full);
+                if (seen.has(real)) continue;
+                seen.add(real);
                 await walk(full);
                 continue;
             }
@@ -90,6 +114,11 @@ async function listResources(dir: string): Promise<string[]> {
     };
     await walk(dir);
     return out.sort();
+}
+
+function isStrictlyInside(root: string, target: string): boolean {
+    const rel = relative(root, target);
+    return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 async function isDirectory(path: string): Promise<boolean> {

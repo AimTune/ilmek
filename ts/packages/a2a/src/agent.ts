@@ -131,7 +131,10 @@ export class A2aAgent {
 
     private async rpc<T>(method: string, params: unknown): Promise<T> {
         const response: JsonRpcResponse = await this.transport.post({ jsonrpc: "2.0", id: ++this.rpcSeq, method, params });
-        if (response.error) throw new A2aError(response.error.code, response.error.message, response.error.data);
+        if (response?.error) throw new A2aError(response.error.code, response.error.message, response.error.data);
+        if (response?.result === undefined || response.result === null || typeof response.result !== "object") {
+            throw new A2aError(-32603, `A2A ${method}: malformed JSON-RPC response — no result object and no error`, response);
+        }
         return response.result as T;
     }
 }
@@ -140,6 +143,9 @@ export class A2aAgent {
 function asTask(result: A2aTask | A2aMessage, agent: string): A2aTask {
     if ((result as A2aTask).kind === "task" || ("status" in result && "id" in result)) return result as A2aTask;
     const m = result as A2aMessage;
+    if (typeof m.messageId !== "string" || !Array.isArray(m.parts)) {
+        throw new A2aError(-32603, "A2A message/send: the result is neither a task nor a message", result);
+    }
     return {
         kind: "task",
         id: m.taskId ?? `message:${m.messageId}`,
@@ -151,6 +157,9 @@ function asTask(result: A2aTask | A2aMessage, agent: string): A2aTask {
 
 /** Reduce a task to {@link A2aResult}. Pure — both languages pin it through conformance/a2a. */
 export function normalizeTask(task: A2aTask): A2aResult {
+    if (typeof task?.status !== "object" || task.status === null) {
+        throw new A2aError(-32603, `A2A task ${JSON.stringify(task?.id)} has no status`, task);
+    }
     const statusMessage = task.status.message;
     const statusData = dataOf(statusMessage?.parts);
     const out: { -readonly [K in keyof A2aResult]: A2aResult[K] } = {

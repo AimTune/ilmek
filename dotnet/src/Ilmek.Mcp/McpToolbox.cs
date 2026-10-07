@@ -60,8 +60,10 @@ public sealed class McpToolbox
         Name = options.Name;
         Prefix = options.Prefix ?? $"{options.Name}__";
         var allow = options.Allow is null ? null : new HashSet<string>(options.Allow, StringComparer.Ordinal);
-        foreach (var t in tools)
+        // A sloppy server may answer tools/list without a list, or with holes in it.
+        foreach (var t in tools ?? [])
         {
+            if (t is null) continue;
             if (allow is not null && !allow.Contains(t.Name)) continue;
             var exposed = Prefix + t.Name;
             _byName[exposed] = new McpTool { Name = exposed, RemoteName = t.Name, Description = t.Description, InputSchema = t.InputSchema };
@@ -98,8 +100,11 @@ public sealed class McpToolbox
     /// </summary>
     public ValueTask<McpToolResult> CallAsync(IContext ctx, string name, IReadOnlyDictionary<string, object?>? arguments = null, string? key = null)
     {
-        var tool = _byName.GetValueOrDefault(name)
-            ?? throw new KeyNotFoundException($"MCP toolbox \"{Name}\" has no tool \"{name}\"");
+        // An unknown tool faults the returned task rather than throwing before
+        // there is one, so `await` and `.AsTask()` callers see it the same way.
+        if (_byName.GetValueOrDefault(name) is not { } tool)
+            return ValueTask.FromException<McpToolResult>(
+                new KeyNotFoundException($"MCP toolbox \"{Name}\" has no tool \"{name}\""));
         return ctx.StepAsync(key ?? $"mcp:{Name}:{tool.RemoteName}", async () =>
             await InvokeAsync(name, arguments, ctx.CancellationToken).ConfigureAwait(false));
     }
@@ -115,7 +120,7 @@ public sealed class McpToolbox
     public async Task<string> FetchResourceAsync(string uri, CancellationToken ct = default)
     {
         var contents = await _client.ReadResourceAsync(uri, ct).ConfigureAwait(false);
-        return string.Join("\n", contents.Select(c => c.Text ?? "").Where(t => t.Length > 0));
+        return string.Join("\n", (contents ?? []).Select(c => c?.Text ?? "").Where(t => t.Length > 0));
     }
 
     /// <summary>The server's prompts, or empty when it advertises none.</summary>

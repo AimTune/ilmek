@@ -97,6 +97,21 @@ export function reduceChannel<V, U>(name: string, ch: Channel<V, U>, current: V 
     }
 }
 
+// Channel names are user data, and the records keyed by them are plain objects.
+// A bare `obj[name]` read finds inherited members (`constructor`, `toString`)
+// and a bare `obj[name] = v` write with `__proto__` swaps the prototype instead
+// of storing a value. These two helpers touch own properties only.
+
+/** `obj[key]` if `key` is an own property, else `undefined`. */
+export function ownValue<T>(obj: Readonly<Record<string, T>>, key: string): T | undefined {
+    return Object.hasOwn(obj, key) ? obj[key] : undefined;
+}
+
+/** `obj[key] = value` as an own data property, even for `__proto__`. */
+export function setOwn(obj: Record<string, unknown>, key: string, value: unknown): void {
+    Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
 /** Materialize raw channel values, substituting defaults for unwritten channels. */
 export function materialize<C extends ChannelMap>(
     channels: C,
@@ -104,8 +119,8 @@ export function materialize<C extends ChannelMap>(
 ): StateOf<C> {
     const out: Record<string, unknown> = {};
     for (const [name, ch] of Object.entries(channels)) {
-        const raw = values[name];
-        out[name] = raw === undefined || raw === UNSET ? ch.default : raw;
+        const raw = ownValue(values, name);
+        setOwn(out, name, raw === undefined || raw === UNSET ? ch.default : raw);
     }
     return out as StateOf<C>;
 }

@@ -9,6 +9,7 @@
     "typecheck": "tsc -b",
     "test": "pnpm -r --filter \"./packages/**\" test",
     "test:core": "node --test packages/core/test/*.test.ts",
+    "test:coverage": "pnpm -r --filter \"./packages/**\" test:coverage",
     "demos": "pnpm --filter @ilmek/examples demos",
     "check": "pnpm build && pnpm test && pnpm demos"
   },

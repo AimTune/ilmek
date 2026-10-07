@@ -36,9 +36,13 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/** test/*.test.ts"
   },
   "dependencies": {
     "@ilmek/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
   }
 }

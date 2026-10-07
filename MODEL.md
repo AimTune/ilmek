@@ -287,7 +287,7 @@ get(thread_id, checkpoint_id | nil) -> checkpoint | nil     # nil = latest
 list(thread_id, opts)               -> [checkpoint]          # newest first
 put_journal(task_id, entries)       -> :ok
 get_journal(task_id)                -> [entry]
-delete_thread(thread_id)            -> :ok
+delete_thread(thread_id)            -> :ok                   # checkpoints AND the thread's journals
 ```
 
 A **checkpoint** is:

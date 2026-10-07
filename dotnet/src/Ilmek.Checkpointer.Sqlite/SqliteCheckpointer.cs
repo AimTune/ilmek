@@ -42,6 +42,14 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
     private readonly bool _wal;
     private bool _migrated;
 
+    private static readonly System.Text.RegularExpressions.Regex SafePrefix =
+        new(@"^[A-Za-z_][A-Za-z0-9_]*\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    // One connection, used from many tasks at once: the engine runs a
+    // superstep's tasks in parallel and every step persists its journal. A
+    // SqliteConnection is not thread-safe, so every command runs under this gate.
+    private readonly Lock _gate = new();
+
     /// <summary>Use an existing, open connection. The caller keeps ownership of it.</summary>
     public SqliteCheckpointer(SqliteConnection connection, SqliteCheckpointerOptions? options = null)
         : this(connection, ownsConnection: false, options) { }
@@ -49,6 +57,15 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
     private SqliteCheckpointer(SqliteConnection connection, bool ownsConnection, SqliteCheckpointerOptions? options)
     {
         var opts = options ?? new SqliteCheckpointerOptions();
+        // The prefix is interpolated into every statement (a table name cannot be
+        // a parameter), so it must be a plain identifier — never SQL.
+        if (opts.TablePrefix is null || !SafePrefix.IsMatch(opts.TablePrefix))
+        {
+            throw new ArgumentException(
+                $"SqliteCheckpointer: TablePrefix {(opts.TablePrefix is null ? "null" : $"\"{opts.TablePrefix}\"")} " +
+                "is not a plain identifier. It is interpolated into SQL, so it must match ^[A-Za-z_][A-Za-z0-9_]*$.",
+                nameof(options));
+        }
         _db = connection;
         _ownsConnection = ownsConnection;
         _checkpoints = $"{opts.TablePrefix}_checkpoints";
@@ -65,14 +82,25 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
     {
         var connection = new SqliteConnection($"Data Source={path}");
         connection.Open();
-        var cp = new SqliteCheckpointer(connection, ownsConnection: true, options);
-        cp.Migrate();
-        return cp;
+        try
+        {
+            var cp = new SqliteCheckpointer(connection, ownsConnection: true, options);
+            cp.Migrate();
+            return cp;
+        }
+        catch
+        {
+            // Never leak an open file handle out of a failed Open.
+            connection.Dispose();
+            SqliteConnection.ClearPool(connection);
+            throw;
+        }
     }
 
     /// <summary>Create the two tables if absent. Idempotent; safe to call on every boot.</summary>
     public void Migrate()
     {
+        using var gate = _gate.EnterScope();
         if (_wal)
         {
             // An in-memory database has no WAL; SQLite reports that rather than
@@ -101,9 +129,12 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
         _migrated = true;
     }
 
-    private void EnsureMigrated()
+    /// <summary>Take the connection gate, refusing use before <see cref="Migrate"/>.</summary>
+    private Lock.Scope EnterMigrated()
     {
-        if (_migrated) return;
+        var scope = _gate.EnterScope();
+        if (_migrated) return scope;
+        scope.Dispose();
         throw new InvalidOperationException(
             "SqliteCheckpointer: call Migrate() once before use (or build it with " +
             "SqliteCheckpointer.Open(), which migrates for you).");
@@ -113,7 +144,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task PutAsync(Checkpoint checkpoint, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         // The full checkpoint is the source of truth in `data`; thread_id/id/step
         // are columns only for the WHERE and ORDER BY below.
         using var cmd = _db.CreateCommand();
@@ -132,7 +163,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task<Checkpoint?> GetAsync(string threadId, string? checkpointId = null, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         using var cmd = _db.CreateCommand();
 
         if (checkpointId is not null)
@@ -154,7 +185,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task<IReadOnlyList<Checkpoint>> ListAsync(string threadId, int? limit = null, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         using var cmd = _db.CreateCommand();
         cmd.CommandText = $"SELECT data FROM {_checkpoints} WHERE thread_id = $thread ORDER BY id DESC"
                           + (limit is null ? "" : " LIMIT $limit");
@@ -169,7 +200,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task PutJournalAsync(string taskId, Journal journal, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         var entries = journal.Dump()
             .Select(kv => new Dictionary<string, object?>
             {
@@ -194,7 +225,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task<Journal> GetJournalAsync(string taskId, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         using var cmd = _db.CreateCommand();
         cmd.CommandText = $"SELECT entries FROM {_journals} WHERE task_id = $task";
         cmd.Parameters.AddWithValue("$task", taskId);
@@ -217,7 +248,7 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task DropJournalAsync(string taskId, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         using var cmd = _db.CreateCommand();
         cmd.CommandText = $"DELETE FROM {_journals} WHERE task_id = $task";
         cmd.Parameters.AddWithValue("$task", taskId);
@@ -227,10 +258,20 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
 
     public Task DeleteThreadAsync(string threadId, CancellationToken ct = default)
     {
-        EnsureMigrated();
+        using var gate = EnterMigrated();
         using var cmd = _db.CreateCommand();
-        cmd.CommandText = $"DELETE FROM {_checkpoints} WHERE thread_id = $thread";
+        cmd.CommandText = $"""
+            DELETE FROM {_checkpoints} WHERE thread_id = $thread;
+            DELETE FROM {_journals}
+             WHERE substr(task_id, 1, length($root)) = $root
+                OR substr(task_id, 1, length($ckpt)) = $ckpt;
+            """;
+        // The thread's journals go with it (Checkpoint.ThreadJournalPrefixes).
+        // substr, not LIKE: a thread id may contain % or _.
+        var prefixes = Checkpoint.ThreadJournalPrefixes(threadId);
         cmd.Parameters.AddWithValue("$thread", threadId);
+        cmd.Parameters.AddWithValue("$root", prefixes[0]);
+        cmd.Parameters.AddWithValue("$ckpt", prefixes[1]);
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;
     }
@@ -284,9 +325,17 @@ public sealed class SqliteCheckpointer : ICheckpointer, IDisposable
             root.GetProperty("Ts").GetInt64());
     }
 
-    /// <summary>Closes the connection when this instance opened it.</summary>
+    /// <summary>
+    /// Closes the connection when this instance opened it — and really closes it.
+    /// Microsoft.Data.Sqlite pools connections, so a plain Dispose only parks the
+    /// native handle in the pool and the database file stays open (on Windows it
+    /// cannot be deleted, moved or replaced until the process exits). Clearing the
+    /// pool releases the file, which is what "closed" means for a file store.
+    /// </summary>
     public void Dispose()
     {
-        if (_ownsConnection) _db.Dispose();
+        if (!_ownsConnection) return;
+        _db.Dispose();
+        SqliteConnection.ClearPool(_db);
     }
 }

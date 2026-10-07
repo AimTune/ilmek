@@ -1,12 +1,13 @@
 {
-  "//": "Typecheck src + tests. Tests import the built @ilmek/core, so run `tsc -b` first.",
+  "//": "Typecheck src + tests. Tests import the built @ilmek/core, so run `tsc -b` first. skipLibCheck: PGlite (test-only) ships .d.ts files that need DOM/Emscripten globals.",
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "rootDir": "."
+    "rootDir": ".",
+    "skipLibCheck": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "references": [{ "path": "../../core" }]

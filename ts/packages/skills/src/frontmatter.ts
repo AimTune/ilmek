@@ -111,8 +111,10 @@ function parseMapping(c: Cursor, indent: number): Record<string, FrontmatterValu
         const key = unquote(m[1]!);
         const rest = m[2]?.trim() ?? "";
         c.i++;
-        if (key in out) throw new SkillParseError("duplicate_key", `frontmatter key ${JSON.stringify(key)} appears twice`);
-        out[key] = parseValue(c, indent, rest);
+        // Own properties only: `constructor` is a legal key, not a duplicate of
+        // Object.prototype's, and `__proto__` must be stored, not assigned.
+        if (Object.hasOwn(out, key)) throw new SkillParseError("duplicate_key", `frontmatter key ${JSON.stringify(key)} appears twice`);
+        Object.defineProperty(out, key, { value: parseValue(c, indent, rest), writable: true, enumerable: true, configurable: true });
     }
     return out;
 }

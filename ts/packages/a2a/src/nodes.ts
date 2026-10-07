@@ -28,7 +28,7 @@ export function a2aNodes(agents: Readonly<Record<string, A2aAgent>>): NodeRegist
         a2a_call: (config) => {
             const name = config.agent;
             if (typeof name !== "string" || name.length === 0) throw new GraphError(`an "a2a_call" node needs config.agent`);
-            const agent = agents[name];
+            const agent = Object.hasOwn(agents, name) ? agents[name] : undefined;
             if (!agent) throw new GraphError(`"a2a_call" node references A2A agent ${JSON.stringify(name)}; known: ${JSON.stringify(Object.keys(agents))}`);
             const fixedText = typeof config.text === "string" ? config.text : undefined;
             const textFrom = typeof config.textFrom === "string" ? config.textFrom : undefined;

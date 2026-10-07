@@ -1,4 +1,4 @@
-import type { Channel, ChannelMap, StateOf, UpdateOf } from "./channel.ts";
+import { setOwn, type Channel, type ChannelMap, type StateOf, type UpdateOf } from "./channel.ts";
 import type { Context } from "./context.ts";
 import type { Command, Goto, Send } from "./control.ts";
 import { isSend } from "./control.ts";
@@ -12,6 +12,17 @@ export const START = "__start__";
 export const END = "__end__";
 
 const RESERVED: ReadonlySet<string> = new Set([START, END]);
+
+/**
+ * Node ids and channel names key the checkpoint, the journal task ids and the
+ * pending-interrupt ids, so they must be real strings. The static types already
+ * say so; this catches a graph built from untyped data (a stored spec, JSON).
+ */
+function requireName(what: "node" | "channel", name: unknown): asserts name is string {
+    if (typeof name !== "string" || name.length === 0) {
+        throw new GraphError(`${what} name must be a non-empty string, got ${JSON.stringify(name) ?? String(name)}`);
+    }
+}
 
 /**
  * One named unit of work (MODEL.md §3).
@@ -116,15 +127,22 @@ export class GraphBuilder<C extends ChannelMap> {
         name: K,
         ch: Channel<V, U>,
     ): GraphBuilder<C & { [P in K]: Channel<V, U> }> {
-        if (name in this.channelMap) throw new GraphError(`duplicate channel ${JSON.stringify(name)}`);
-        this.channelMap[name] = ch;
+        requireName("channel", name);
+        // hasOwn, not `in`: a channel named `constructor` is not a duplicate of
+        // Object.prototype's, and `__proto__` must be stored, not assigned.
+        if (Object.hasOwn(this.channelMap, name)) throw new GraphError(`duplicate channel ${JSON.stringify(name)}`);
+        setOwn(this.channelMap, name, ch);
         // The object is the same; only its static type widens.
         return this as unknown as GraphBuilder<C & { [P in K]: Channel<V, U> }>;
     }
 
     node<In = StateOf<C>>(id: string, fn: NodeFnIn<In, C>, opts: NodeOptions = {}): this {
+        requireName("node", id);
         if (RESERVED.has(id)) throw new GraphError(`${JSON.stringify(id)} is reserved and implicit`);
         if (this.nodes.has(id)) throw new GraphError(`duplicate node ${JSON.stringify(id)}`);
+        if (typeof fn !== "function") {
+            throw new GraphError(`node ${JSON.stringify(id)}: expected a function (state, ctx), got ${typeof fn}`);
+        }
         if (opts.retry && opts.retry.maxAttempts < 1) {
             throw new GraphError(`node ${JSON.stringify(id)}: retry.maxAttempts must be ≥ 1`);
         }
@@ -156,6 +174,9 @@ export class GraphBuilder<C extends ChannelMap> {
 
     /** A conditional edge returning the target name(s) at plan time. */
     router(from: string, fn: RouterFn<C>): this {
+        if (typeof fn !== "function") {
+            throw new GraphError(`router on ${JSON.stringify(from)}: expected a function (state, ctx), got ${typeof fn}`);
+        }
         this.edges.push({ from, to: null, when: null, router: fn, specWhen: null });
         return this;
     }

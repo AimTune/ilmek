@@ -3,7 +3,7 @@
 // hand back a skill by name is one, so a host can back it with a database, a
 // remote registry or a client's declarations just as well as with folders.
 
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { SkillParseError } from "./frontmatter.ts";
@@ -84,12 +84,27 @@ export class SkillCatalog implements SkillSource {
             throw new SkillParseError("no_resources", `skill ${JSON.stringify(name)} is inline and has no files on disk`);
         }
         const root = resolve(skill.path);
+        if (typeof path !== "string" || path.includes("\0")) {
+            throw new SkillParseError("outside_skill", `resource path ${JSON.stringify(path)} is not a valid relative path`);
+        }
         if (isAbsolute(path)) throw new SkillParseError("outside_skill", `resource paths are relative to the skill folder: ${path}`);
         const full = resolve(root, path);
-        const rel = relative(root, full);
-        if (rel === "" || rel.startsWith("..") || isAbsolute(rel) || rel.split(sep).includes("..")) {
+        if (!isInside(root, full)) {
             throw new SkillParseError("outside_skill", `resource ${JSON.stringify(path)} is outside skill ${JSON.stringify(name)}`);
         }
-        return readFile(full, "utf8");
+        // The check above is lexical. A symlink inside the folder can still
+        // point anywhere (a downloaded skill shipping `refs -> ~/.ssh`), so the
+        // resolved target must stay inside the resolved skill folder too.
+        const [realRoot, realFull] = await Promise.all([realpath(root), realpath(full)]);
+        if (!isInside(realRoot, realFull)) {
+            throw new SkillParseError("outside_skill", `resource ${JSON.stringify(path)} links outside skill ${JSON.stringify(name)}`);
+        }
+        return readFile(realFull, "utf8");
     }
+}
+
+/** Is `full` strictly inside `root` (not `root` itself)? Both must be resolved. */
+function isInside(root: string, full: string): boolean {
+    const rel = relative(root, full);
+    return !(rel === "" || rel.startsWith("..") || isAbsolute(rel) || rel.split(sep).includes(".."));
 }

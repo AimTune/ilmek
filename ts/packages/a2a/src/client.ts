@@ -141,6 +141,9 @@ export class HttpA2aTransport implements A2aTransport {
 
     async post(request: JsonRpcRequest): Promise<JsonRpcResponse> {
         if (this.endpoint === undefined) await this.getAgentCard();
+        if (this.endpoint === undefined) {
+            throw new Error(`A2A ${request.method}: the agent card at ${this.cardUrl} has no url and no endpoint was given`);
+        }
         const res = await this.fetchImpl(this.endpoint!, {
             method: "POST",
             headers: { "Content-Type": "application/json", Accept: "application/json", ...this.headers },

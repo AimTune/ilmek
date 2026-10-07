@@ -72,6 +72,13 @@ class FakePg implements SqlClient {
                 this.checkpoints.delete((params as [string])[0]);
                 return { rows: [] };
             }
+            case "delete_thread_journals": {
+                const prefixes = params as string[];
+                for (const taskId of [...this.journals.keys()]) {
+                    if (prefixes.some((p) => taskId.startsWith(p))) this.journals.delete(taskId);
+                }
+                return { rows: [] };
+            }
             default:
                 throw new Error(`FakePg: unrecognized statement: ${text.slice(0, 60)}`);
         }

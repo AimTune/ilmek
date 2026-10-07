@@ -67,6 +67,9 @@ public sealed class HttpA2aTransport : IA2aTransport
     public async Task<IReadOnlyDictionary<string, object?>> PostAsync(IReadOnlyDictionary<string, object?> request, CancellationToken ct = default)
     {
         if (_endpoint is null) await GetAgentCardAsync(ct).ConfigureAwait(false);
+        if (_endpoint is null)
+            throw new InvalidOperationException(
+                $"A2A {request.GetValueOrDefault("method")}: the agent card at {_cardUrl} has no url and no endpoint was given");
         using var content = new StringContent(PlainJson.Serialize(request), Encoding.UTF8, "application/json");
         using var res = await _http.PostAsync(_endpoint, content, ct).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) throw new HttpRequestException($"A2A {request.GetValueOrDefault("method")}: HTTP {(int)res.StatusCode}");
@@ -91,7 +94,9 @@ public static class PlainJson
         JsonValueKind.Object => el.EnumerateObject().ToDictionary(p => p.Name, p => FromElement(p.Value)) as Dictionary<string, object?>,
         JsonValueKind.Array => el.EnumerateArray().Select(FromElement).ToList(),
         JsonValueKind.String => el.GetString(),
-        JsonValueKind.Number => el.TryGetInt64(out var l) ? l : el.GetDouble(),
+        // The (object) cast is load-bearing: without it the conditional unifies
+        // to double and EVERY integer comes back as 3.0 instead of 3L.
+        JsonValueKind.Number => el.TryGetInt64(out var l) ? (object)l : el.GetDouble(),
         JsonValueKind.True => true,
         JsonValueKind.False => false,
         _ => null,

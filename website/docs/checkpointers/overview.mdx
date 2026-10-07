@@ -107,6 +107,11 @@ Because every checkpoint names its parent, a thread is a **tree, not a line**:
 resuming from a non-latest checkpoint forks a branch (time travel / what-if).
 Implementations must not assume a single chain.
 
+`deleteThread` forgets the thread completely — its checkpoints **and** the
+journals of its tasks (every task id starting with `threadJournalPrefixes(threadId)`).
+A fresh run on a reused thread id therefore starts clean instead of replaying the
+deleted conversation's steps.
+
 :::note ilmek checkpoints are ilmek's own
 They hold engine state — channels, journals, and pending pauses — not a host's
 transcript or conversation store, which a host keeps independently.

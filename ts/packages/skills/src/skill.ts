@@ -134,7 +134,8 @@ export function parseSkill(markdown: string, opts: ParseSkillOptions = {}): Skil
             if (typeof v !== "string") {
                 throw new SkillParseError("invalid_field", `frontmatter "metadata.${key}" must be a string`);
             }
-            out[key] = v;
+            // defineProperty, so a `__proto__` key is kept rather than swallowed.
+            Object.defineProperty(out, key, { value: v, writable: true, enumerable: true, configurable: true });
         }
         skill.metadata = out;
     }
