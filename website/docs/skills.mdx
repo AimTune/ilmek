@@ -118,7 +118,8 @@ const pdf = skills.get("pdf");
 if (pdf) console.log(pdf.instructions);
 
 // Level 3 — a bundled file, when the instructions point at it. Paths are
-// confined to the skill folder: `..` and absolute paths are refused.
+// confined to the skill folder: `..`, absolute paths and links that
+// resolve outside it are refused.
 console.log(await skills.readResource("pdf", "references/forms.md"));
 ```
 
@@ -137,7 +138,8 @@ var system = "You are a document assistant.\n\n" + SkillPrompt.Render(skills.Lis
 if (skills.Get("pdf") is { } pdf) Console.WriteLine(pdf.Instructions);
 
 // Level 3 — a bundled file, when the instructions point at it. Paths are
-// confined to the skill folder: `..` and absolute paths are refused.
+// confined to the skill folder: `..`, absolute paths and links that
+// resolve outside it are refused.
 Console.WriteLine(await skills.ReadResourceAsync("pdf", "references/forms.md"));
 ```
 

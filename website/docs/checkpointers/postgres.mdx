@@ -106,6 +106,16 @@ new PostgresCheckpointer(pool, { tablePrefix: "billing" });
 // → billing_checkpoints, billing_journals
 ```
 
+The prefix becomes part of a table name, so it must be a plain SQL identifier
+(letters, digits and `_`, not starting with a digit); anything else is refused
+when the checkpointer is constructed.
+
+:::note jsonb and U+0000
+Postgres `jsonb` cannot store the NUL character, so a checkpoint or step value
+containing that character fails to write. Strip or encode NULs before they reach state
+or a step result if your data can contain them.
+:::
+
 </TabItem>
 <TabItem value="csharp" label=".NET (C#)">
 

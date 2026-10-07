@@ -218,3 +218,21 @@ cd dotnet && dotnet run --project examples/Ilmek.Examples     # 💳 create_orde
 
 </TabItem>
 </Tabs>
+
+## A resume is all-or-nothing, and safe to retry
+
+A keyed resume is checked as a whole before anything is written: if one pending
+`id` has no answer, the call is refused with a `ResumeError` naming it and **no**
+answer is recorded, so the corrected call simply works. Answers for ids that are
+not pending are ignored.
+
+The answer is journaled before the resumed superstep runs. If that superstep
+does not commit — a node throws, the run is aborted, the process dies — the
+thread is still parked on the same pause, and you resume it again:
+
+- the **same** answer (deep-equal) replays: the superstep runs again, and every
+  step that already completed — including steps after the pause — comes back
+  from the journal instead of re-running;
+- a **different** answer is refused with a `ResumeError`. Steps after the pause
+  may already have acted on the first answer, so it cannot be swapped out
+  underneath them.
