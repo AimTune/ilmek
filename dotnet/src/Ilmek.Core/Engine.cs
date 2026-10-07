@@ -604,8 +604,8 @@ internal static class Engine
         try
         {
             return System.Text.Json.Nodes.JsonNode.DeepEquals(
-                System.Text.Json.JsonSerializer.SerializeToNode(recorded),
-                System.Text.Json.JsonSerializer.SerializeToNode(incoming));
+                System.Text.Json.JsonSerializer.SerializeToNode(recorded, JournalJson.Options),
+                System.Text.Json.JsonSerializer.SerializeToNode(incoming, JournalJson.Options));
         }
         catch (Exception ex) when (ex is NotSupportedException or System.Text.Json.JsonException
                                        or InvalidOperationException)

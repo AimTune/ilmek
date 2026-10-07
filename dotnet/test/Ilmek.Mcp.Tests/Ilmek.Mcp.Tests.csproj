@@ -17,6 +17,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Ilmek.Mcp/Ilmek.Mcp.csproj" />
+    <!-- The journaled-call tests cross a real SQLite reload. -->
+    <ProjectReference Include="../../src/Ilmek.Checkpointer.Sqlite/Ilmek.Checkpointer.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

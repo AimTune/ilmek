@@ -205,6 +205,60 @@ public class McpTests
         Assert.Equal(["search", "get_file"], client.Calls.Select(c => c.Name).ToArray());
     }
 
+    [Fact(DisplayName = "call survives a SQLite reload: the replayed McpToolResult is typed and identical")]
+    public async Task CallSurvivesSqliteReload()
+    {
+        // A durable checkpointer hands the journal back as plain JSON data; the
+        // replayed CallAsync must still produce an McpToolResult, not throw an
+        // InvalidCastException, and must not call the server again.
+        var dir = Directory.CreateTempSubdirectory("ilmek-mcp-").FullName;
+        var path = Path.Combine(dir, "mcp.db");
+        try
+        {
+            var client = new FakeMcpClient();
+            var toolbox = await Connect(client);
+            var seen = new List<(McpToolResult Hits, McpToolResult File)>();
+            var g = Graph.Create("mcp")
+                .Channel("log", Channels.Append())
+                .Node("work", async (State _, IContext ctx) =>
+                {
+                    var hits = await toolbox.CallAsync(ctx, "github__search", new Dictionary<string, object?> { ["q"] = "ilmek" });
+                    var file = await toolbox.CallAsync(ctx, "github__get_file", new Dictionary<string, object?> { ["path"] = "README.md" });
+                    seen.Add((hits, file));
+                    var ok = await ctx.InterruptAsync<string>(new Dictionary<string, object?> { ["q"] = "proceed?" });
+                    return Update.Of("log", new List<object?> { hits.Text.Split('\n')[0], file.Text, ok });
+                })
+                .Edge(Graph.Start, "work")
+                .Edge("work", Graph.End)
+                .Compile();
+
+            using (var first = Ilmek.Checkpointers.Sqlite.SqliteCheckpointer.Open(path))
+            {
+                var paused = await g.RunAsync(new Dictionary<string, object?>(), new RunOptions { ThreadId = "t-sqlite", Checkpointer = first });
+                Assert.Equal(RunStatus.Interrupted, paused.Status);
+            }
+
+            using (var second = Ilmek.Checkpointers.Sqlite.SqliteCheckpointer.Open(path))
+            {
+                var done = await g.ResumeAsync("yes", new RunOptions { ThreadId = "t-sqlite", Checkpointer = second });
+                Assert.Equal(RunStatus.Done, done.Status);
+                Assert.Equal(["3 results", "# README", "yes"], done.State!.Get<IReadOnlyList<object?>>("log").Cast<string>().ToArray());
+            }
+
+            Assert.Equal(["search", "get_file"], client.Calls.Select(c => c.Name).ToArray()); // no second call
+            Assert.Equal(2, seen.Count);
+            Assert.Equal(Canonical(seen[0].Hits.ToDictionary()), Canonical(seen[1].Hits.ToDictionary()));
+            Assert.Equal(Canonical(seen[0].File.ToDictionary()), Canonical(seen[1].File.ToDictionary()));
+            Assert.Equal(3L, seen[1].Hits.Structured!["count"]); // plain CLR data, not JsonElement
+            Assert.Equal("image", seen[1].File.Content[0]["type"]);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            try { Directory.Delete(dir, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+    }
+
     [Fact(DisplayName = "resources and prompts: listed, read and fetched once")]
     public async Task ResourcesAndPrompts()
     {
