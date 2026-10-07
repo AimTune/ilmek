@@ -518,3 +518,32 @@ describe("declarative predicates route as documented", () => {
         });
     }
 });
+
+describe("fromSpec — reducers", () => {
+    test("a merge channel from a spec merges shallowly and round-trips", async () => {
+        const doc: GraphSpec = {
+            name: "m",
+            channels: { profile: { reducer: "merge" } },
+            nodes: [
+                { id: "a", type: "set", config: { patch: { name: "ada" } } },
+                { id: "b", type: "set", config: { patch: { lang: "tr" } } },
+            ],
+            edges: [
+                { from: START, to: "a" },
+                { from: "a", to: "b" },
+            ],
+        };
+        const g = fromSpec(doc, { set: (c) => () => ({ profile: c.patch }) }).compile();
+        assert.deepEqual((await run(g, { profile: { id: 1 } })).state?.profile, { id: 1, name: "ada", lang: "tr" });
+        assert.deepEqual(toSpec(g), doc);
+    });
+
+    test("a channel with no reducer named defaults to last_write", async () => {
+        const g = fromSpec(
+            { name: null, channels: { v: {} }, nodes: [{ id: "a", type: "t" }], edges: [{ from: START, to: "a" }] },
+            { t: () => () => ({ v: 2 }) },
+        ).compile();
+        assert.equal((await run(g, { v: 1 })).state?.v, 2);
+        assert.deepEqual(toSpec(g).channels, { v: { reducer: "last_write" } });
+    });
+});
