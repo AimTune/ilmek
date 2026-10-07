@@ -187,8 +187,27 @@ describe("readResource — path traversal is refused", () => {
         if (!tryLink(outsideDir, join(linked, "refs"), "junction")) return t.skip("directory links need privileges here");
 
         const cat = await SkillCatalog.fromDirectories(dirname(linked));
-        assert.ok(cat.get("linked-dir")!.resources.includes("refs/loot.txt"), "the loader follows the link when listing");
+        assert.deepEqual(cat.get("linked-dir")!.resources, [], "a link out of the skill is not advertised");
         await assert.rejects(cat.readResource("linked-dir", "refs/loot.txt"), code("outside_skill"));
+    });
+
+    test("a link back to the skill folder or an ancestor is not walked forever", async (t) => {
+        const looped = skillDir("looped", { "refs/a.md": "a" });
+        if (!tryLink(looped, join(looped, "refs", "self"), "junction")) return t.skip("directory links need privileges here");
+        if (!tryLink(dirname(looped), join(looped, "refs", "up"), "junction")) return t.skip("directory links need privileges here");
+        if (!tryLink(join(looped, "refs"), join(looped, "alias"), "junction")) return t.skip("directory links need privileges here");
+
+        const skill = await loadSkill(looped);
+        assert.deepEqual(skill.resources, ["refs/a.md"], "the self/ancestor links and the second route to refs are skipped");
+    });
+
+    test("a dangling link is skipped when listing resources", async (t) => {
+        const dangling = skillDir("dangling", { "refs/a.md": "a" });
+        const gone = join(dirname(dangling), "gone");
+        mkdirSync(gone);
+        if (!tryLink(gone, join(dangling, "refs", "gone"), "junction")) return t.skip("directory links need privileges here");
+        rmSync(gone, { recursive: true });
+        assert.deepEqual((await loadSkill(dangling)).resources, ["refs/a.md"]);
     });
 
     test("an inline skill has no files to read", async () => {
