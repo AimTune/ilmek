@@ -1,0 +1,37 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- ilmek social card (source). Regenerate ilmek-social-card.png from this.
+       Logo paths are the exact brand paths from website/static/img/logo.svg
+       (32x32 viewBox) scaled x4.6 and centered. Brand tokens: #1e1b4b bg,
+       #4338ca/#818cf8 stitches, #a5b4fc tagline, #6366f1 pill border. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e1b4b"/>
+      <stop offset="1" stop-color="#130e2b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.34" r="0.5">
+      <stop offset="0" stop-color="#4338ca" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#4338ca" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- logo: the two interlocking stitch arcs from logo.svg, x4.6 centered (y offset 52).
+       stroke-width 20/4.6 = 4.35 matches the rendered 20px strokes in the PNG. -->
+  <g transform="translate(526.4 52) scale(4.6)" stroke-linecap="round" fill="none">
+    <path d="M4 20c0-5 4-9 8-9s8 4 8 9" stroke="#4338ca" stroke-width="4.35"/>
+    <path d="M12 12c0 5 4 9 8 9s8-4 8-9" stroke="#818cf8" stroke-width="4.35"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="600" y="368" text-anchor="middle" font-family="Lato, 'Segoe UI', Arial, sans-serif" font-size="96" font-weight="900" fill="#ffffff">ilmek</text>
+
+  <!-- tagline -->
+  <text x="600" y="446" text-anchor="middle" font-family="Lato, 'Segoe UI', Arial, sans-serif" font-size="34" fill="#a5b4fc">Agent graph runtime with durable,</text>
+  <text x="600" y="494" text-anchor="middle" font-family="Lato, 'Segoe UI', Arial, sans-serif" font-size="34" fill="#a5b4fc">journaled human-in-the-loop — TypeScript &amp; .NET</text>
+
+  <!-- site URL pill -->
+  <rect x="486" y="530" width="228" height="62" rx="31" fill="#332d73" stroke="#6366f1" stroke-width="2"/>
+  <text x="600" y="570" text-anchor="middle" font-family="Lato, 'Segoe UI', Arial, sans-serif" font-size="30" font-weight="600" fill="#c7d2fe">ilmek.aimtune.dev</text>
+</svg>
