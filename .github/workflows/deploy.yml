@@ -47,6 +47,55 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+      # Guard: every og:image / twitter:image referenced in the built HTML must
+      # resolve to a real file in the build output. Docusaurus does not validate
+      # themeConfig.image, so a missing social card would otherwise slip through
+      # (the ilmek-social-card.png 404 this guard was added for).
+      - name: Verify social card assets exist in build output
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const walk = (dir, out = []) => {
+              for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) walk(p, out);
+                else if (e.name.endsWith(".html")) out.push(p);
+              }
+              return out;
+            };
+            const root = "build";
+            if (!fs.existsSync(root)) { console.error("no build/ directory"); process.exit(1); }
+            const htmlFiles = walk(root);
+            console.log(`checking ${htmlFiles.length} HTML files`);
+            const re = /(?:og:image|twitter:image)[^>]*?content=(?:"([^"]+)"|([^\s>]+))/g;
+            let checked = 0;
+            for (const f of htmlFiles) {
+              const html = fs.readFileSync(f, "utf8");
+              for (const m of html.matchAll(re)) {
+                const raw = m[1] || m[2];
+                if (!raw) continue;
+                const url = raw.startsWith("http")
+                  ? new URL(raw)
+                  : new URL(raw, "https://ilmek.aimtune.dev/");
+                if (url.origin !== "https://ilmek.aimtune.dev") continue;
+                const candidate = path.join(root, url.pathname.replace(/^\//, ""));
+                if (!fs.existsSync(candidate)) {
+                  console.error(`MISSING ${f} -> ${raw} (${candidate})`);
+                  process.exit(1);
+                }
+                checked++;
+                console.log(`OK ${f} -> ${raw}`);
+              }
+            }
+            if (checked === 0) {
+              console.error("no og:image/twitter:image references found in build output");
+              process.exit(1);
+            }
+            console.log(`all ${checked} social image reference(s) resolve to build output`);
+          '
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/build
